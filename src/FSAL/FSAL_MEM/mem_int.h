@@ -26,11 +26,14 @@
 
 /* MEM methods for handles
 */
-
+#define VIVENAS 1
 #include "avltree.h"
 #include "gsh_list.h"
 #ifdef USE_LTTNG
 #include "gsh_lttng/fsal_mem.h"
+#endif
+#ifdef VIVENAS
+#include "vivenas.h"
 #endif
 
 struct mem_fsal_obj_handle;
@@ -64,6 +67,9 @@ struct mem_fsal_export {
 	uint32_t async_stall_delay;
 	/** Type of async */
 	uint32_t async_type;
+	/** rocksdb ptah */
+	char* db_path;
+	struct ViveFsContext* mount_ctx;
 };
 
 fsal_status_t mem_lookup_path(struct fsal_export *exp_hdl,
@@ -81,6 +87,14 @@ fsal_status_t mem_create_handle(struct fsal_export *exp_hdl,
  */
 
 #define V4_FH_OPAQUE_SIZE 58 /* Size of state_obj digest */
+struct vn_fd {
+	struct state_t state;
+	/** The open and share mode etc. This MUST be first in every
+	 *  file descriptor structure.
+	 */
+	fsal_openflags_t openflags;
+	struct ViveFile* vf;
+};
 
 struct mem_fsal_obj_handle {
 	struct fsal_obj_handle obj_handle;
@@ -96,7 +110,7 @@ struct mem_fsal_obj_handle {
 		} mh_dir;
 		struct {
 			struct fsal_share share;
-			struct fsal_fd fd;
+			struct vn_fd fd;
 		} mh_file;
 		struct {
 			object_file_type_t nodetype;
@@ -215,3 +229,11 @@ fsal_status_t mem_up_pkginit(void);
 fsal_status_t mem_up_pkgshutdown(void);
 
 extern struct mem_fsal_module MEM;
+#define KNRM  "\x1B[0m"
+#define KRED  "\x1B[31m"
+#define KGRN  "\x1B[32m"
+#define KYEL  "\x1B[33m"
+#define KBLU  "\x1B[34m"
+#define KMAG  "\x1B[35m"
+#define KCYN  "\x1B[36m"
+#define KWHT  "\x1B[37m"

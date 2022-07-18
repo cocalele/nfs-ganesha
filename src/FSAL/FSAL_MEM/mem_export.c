@@ -47,7 +47,7 @@
 #include "nfs_core.h"
 #include "export_mgr.h"
 #include <misc/portable.h>
-
+#include "vivenas.h"
 #ifdef USE_LTTNG
 #include "gsh_lttng/fsal_mem.h"
 #endif
@@ -163,9 +163,12 @@ static struct state_t *mem_alloc_state(struct fsal_export *exp_hdl,
 {
 	struct state_t *state;
 
-	state = init_state(gsh_calloc(1, sizeof(struct state_t)
-				      + sizeof(struct fsal_fd)),
-			   exp_hdl, state_type, related_state);
+	//state = init_state(gsh_calloc(1, sizeof(struct state_t)
+	//			      + sizeof(struct fsal_fd)),
+	//		   exp_hdl, state_type, related_state);
+	state = init_state(gsh_calloc(1, sizeof(struct vn_fd)),
+		exp_hdl, state_type, related_state);
+
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, mem_alloc_state, __func__, __LINE__, state);
 #endif
@@ -218,6 +221,8 @@ static struct config_item mem_export_params[] = {
 			mem_fsal_export, async_type),
 	CONF_ITEM_UI32("Async_Stall_Delay", 0, 1000, 0,
 		       mem_fsal_export, async_stall_delay),
+	CONF_ITEM_STR((char*)"db_path", 0, 256, NULL, mem_fsal_export, db_path),
+
 	CONFIG_EOL
 };
 
@@ -271,6 +276,19 @@ fsal_status_t mem_create_export(struct fsal_module *fsal_hdl,
 		goto err_free;	/* seriously bad */
 	}
 
+
+
+	vn_say_hello("Mount vivefs");
+	myself->mount_ctx = vn_mount(myself->db_path);
+	if (myself->mount_ctx == NULL) {
+		fsal_status = posix2fsal_status(EIO);
+		return fsal_status;	/* seriously bad */
+
+	}
+	//myself->root = myself->mount_ctx->root_file.get();
+
+
+
 	retval = fsal_attach_export(fsal_hdl, &myself->export.exports);
 
 	if (retval != 0) {
@@ -280,6 +298,9 @@ fsal_status_t mem_create_export(struct fsal_module *fsal_hdl,
 		fsal_status = posix2fsal_status(retval);
 		goto err_free;	/* seriously bad */
 	}
+
+
+
 
 	myself->export.fsal = fsal_hdl;
 	myself->export.up_ops = up_ops;

@@ -44,6 +44,8 @@
 #include "../Stackable_FSALs/FSAL_MDCACHE/mdcache_ext.h"
 #include "nfs_core.h"
 #include "common_utils.h"
+#include "vivenas.h"
+#include "pf_log.h"
 
 static void mem_release(struct fsal_obj_handle *obj_hdl);
 
@@ -557,15 +559,20 @@ static void mem_copy_attrs_mask(struct fsal_attrlist *attrs_in,
 	attrs_out->change = timespec_to_nsecs(&attrs_out->ctime);
 }
 
+void vn_say_hello(const char* s);
+
 /**
  * @brief Open an FD
  *
  * @param[in] fd	FD to close
  * @return FSAL status
  */
-static fsal_status_t mem_open_my_fd(struct fsal_fd *fd,
+static fsal_status_t mem_open_my_fd(struct mem_fsal_obj_handle* myself, struct vn_fd *fd,
 				    fsal_openflags_t openflags)
 {
+	fprintf(stderr, KGRN "VIVE=== call in mem_open_my_fd, name:%s, mount ctx:%p\n" KNRM, myself->m_name, myself->mfo_exp->mount_ctx);
+	fd->vf = vn_open_file_by_inode(myself->mfo_exp->mount_ctx, myself->inode, O_RDWR|O_CREAT, 0);
+	vn_say_hello("Call ing");
 	fd->openflags = FSAL_O_NFS_FLAGS(openflags);
 
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
@@ -577,7 +584,7 @@ static fsal_status_t mem_open_my_fd(struct fsal_fd *fd,
  * @param[in] fd	FD to close
  * @return FSAL status
  */
-static fsal_status_t mem_close_my_fd(struct fsal_fd *fd)
+static fsal_status_t mem_close_my_fd(struct vn_fd *fd)
 {
 	if (fd->openflags == FSAL_O_CLOSED)
 		return fsalstat(ERR_FSAL_NOT_OPENED, 0);
@@ -601,7 +608,8 @@ static fsal_status_t mem_open_func(struct fsal_obj_handle *obj_hdl,
 				   fsal_openflags_t openflags,
 				   struct fsal_fd *fd)
 {
-	return mem_open_my_fd(fd, openflags);
+	struct mem_fsal_obj_handle* hdl = container_of(obj_hdl, struct mem_fsal_obj_handle, obj_handle);
+	return mem_open_my_fd(hdl, (struct vn_fd*)fd, openflags);
 }
 
 /**
@@ -615,11 +623,11 @@ static fsal_status_t mem_close_func(struct fsal_obj_handle *obj_hdl,
 				    struct fsal_fd *fd)
 {
 	(void) obj_hdl;
-	return mem_close_my_fd(fd);
+	return mem_close_my_fd((struct vn_fd*)fd);
 }
 
-#define mem_alloc_handle(p, n, t, e, a) \
-	_mem_alloc_handle(p, n, t, e, a, __func__, __LINE__)
+#define mem_alloc_handle(p, n, i, t, e, a) \
+	_mem_alloc_handle(p, n, i, t, e, a, __func__, __LINE__)
 /**
  * @brief Allocate a MEM handle
  *
@@ -633,6 +641,7 @@ static fsal_status_t mem_close_func(struct fsal_obj_handle *obj_hdl,
 static struct mem_fsal_obj_handle *
 _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 		  const char *name,
+		  inode_no_t ino,
 		  object_file_type_t type,
 		  struct mem_fsal_export *mfe,
 		  struct fsal_attrlist *attrs,
@@ -652,6 +661,7 @@ _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 	/* Establish tree details for this directory */
 	hdl->m_name = gsh_strdup(name);
 	hdl->obj_handle.fileid = atomic_postinc_uint64_t(&mem_inode_number);
+	hdl->inode = ino;
 	hdl->datasize = MEM.inode_size;
 	glist_init(&hdl->dirents);
 	PTHREAD_RWLOCK_wrlock(&mfe->mfe_exp_lock);
@@ -799,6 +809,10 @@ static fsal_status_t _mem_int_lookup(struct mem_fsal_obj_handle *dir,
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
 
+#if 1 //enable this will cause IO hang
+	int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, NULL);
+	(void)ino;
+#endif
 	dirent = mem_dirent_lookup(dir, path);
 	if (!dirent) {
 		return fsalstat(ERR_FSAL_NOENT, 0);
@@ -811,7 +825,38 @@ static fsal_status_t _mem_int_lookup(struct mem_fsal_obj_handle *dir,
 #endif
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
 }
+mode_t fsal2posix_filetype(object_file_type_t fsal_type_in)
+{
 
+	switch (fsal_type_in) {
+	case FIFO_FILE :
+		return S_IFIFO;
+
+	case CHARACTER_FILE :
+		return S_IFCHR;
+
+	case DIRECTORY:
+		return S_IFDIR;
+
+	case BLOCK_FILE:
+		return S_IFBLK;
+
+	case REGULAR_FILE:
+		return S_IFREG;
+
+	case SYMBOLIC_LINK :
+		return S_IFLNK;
+
+	case SOCKET_FILE:
+		return S_IFSOCK;
+
+	default:
+		LogWarn(COMPONENT_FSAL, "Unknown file type: %d",
+			fsal_type_in);
+		return -1;
+	}
+
+}
 static fsal_status_t mem_create_obj(struct mem_fsal_obj_handle *parent,
 				    object_file_type_t type,
 				    const char *name,
@@ -842,16 +887,21 @@ static fsal_status_t mem_create_obj(struct mem_fsal_obj_handle *parent,
 		/* Some other error */
 		return status;
 	}
-
+	mode_t m = fsal2posix_filetype(parent->obj_handle.type);
+	
+	
+	int64_t ino = vn_create_file(parent->mfo_exp->mount_ctx, parent->inode, name, m | 00644, NULL);
 	/* allocate an obj_handle and fill it up */
 	hdl = mem_alloc_handle(parent,
 			       name,
+					ino,
 			       type,
 			       mfe,
 			       attrs_in);
 	if (!hdl)
 		return fsalstat(ERR_FSAL_NOMEM, 0);
-
+	//hdl->mh_file.fd.vf = vn_open_file(parent->mfo_exp->mount_ctx, parent->inode, name, O_RDWR | O_CREAT, m | 00644);
+	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx,ino,  O_RDWR | O_CREAT, m | 00644);
 	*new_obj = &hdl->obj_handle;
 
 	if (attrs_out != NULL)
@@ -1495,16 +1545,17 @@ fsal_status_t mem_open2(struct fsal_obj_handle *obj_hdl,
 			bool *caller_perm_check)
 {
 	fsal_status_t status = {0, 0};
-	struct fsal_fd *my_fd = NULL;
+	struct vn_fd *my_fd = NULL;
 	struct mem_fsal_obj_handle *myself, *hdl = NULL;
 	bool truncated;
 	bool setattrs = attrs_set != NULL;
 	bool created = false;
 	struct fsal_attrlist verifier_attr;
 
-	if (state != NULL)
-		my_fd = (struct fsal_fd *)(state + 1);
-
+	if (state != NULL) {
+		//my_fd = (struct fsal_fd*)(state + 1);
+		my_fd = container_of(state, struct vn_fd, state);
+	}
 	myself = container_of(obj_hdl, struct mem_fsal_obj_handle, obj_handle);
 
 	if (setattrs)
@@ -1566,7 +1617,7 @@ fsal_status_t mem_open2(struct fsal_obj_handle *obj_hdl,
 
 		if (openflags & FSAL_O_WRITE)
 			openflags |= FSAL_O_READ;
-		mem_open_my_fd(my_fd, openflags);
+		mem_open_my_fd(myself, my_fd, openflags);
 
 		if (truncated)
 			myself->attrs.filesize = myself->attrs.spaceused = 0;
@@ -1663,7 +1714,7 @@ fsal_status_t mem_open2(struct fsal_obj_handle *obj_hdl,
 
 	if (openflags & FSAL_O_WRITE)
 		openflags |= FSAL_O_READ;
-	mem_open_my_fd(my_fd, openflags);
+	mem_open_my_fd(myself, my_fd, openflags);
 
 	*new_obj = &hdl->obj_handle;
 
@@ -1730,7 +1781,11 @@ fsal_status_t mem_reopen2(struct fsal_obj_handle *obj_hdl,
 	struct mem_fsal_obj_handle *myself =
 		container_of(obj_hdl, struct mem_fsal_obj_handle, obj_handle);
 	fsal_status_t status = {0, 0};
+#ifdef VIVENAS
+	struct vn_fd* my_fd = container_of(state, struct vn_fd, state);
+#else
 	struct fsal_fd *my_fd = (struct fsal_fd *)(state + 1);
+#endif
 	fsal_openflags_t old_openflags;
 
 #ifdef USE_LTTNG
@@ -1758,7 +1813,7 @@ fsal_status_t mem_reopen2(struct fsal_obj_handle *obj_hdl,
 
 	PTHREAD_RWLOCK_unlock(&obj_hdl->obj_lock);
 
-	mem_open_my_fd(my_fd, openflags);
+	mem_open_my_fd(myself, my_fd, openflags);
 	if (openflags & FSAL_O_TRUNC)
 		myself->attrs.filesize = myself->attrs.spaceused = 0;
 
@@ -1837,7 +1892,11 @@ void mem_read2(struct fsal_obj_handle *obj_hdl,
 {
 	struct mem_fsal_obj_handle *myself = container_of(obj_hdl,
 				  struct mem_fsal_obj_handle, obj_handle);
+#ifdef VIVENAS
+	struct vn_fd* fsal_fd;
+#else
 	struct fsal_fd *fsal_fd;
+#endif
 	bool has_lock, closefd = false;
 	fsal_status_t status = {ERR_FSAL_NO_ERROR, 0};
 	bool reusing_open_state_fd = false;
@@ -1855,18 +1914,25 @@ void mem_read2(struct fsal_obj_handle *obj_hdl,
 			caller_arg);
 		return;
 	}
-
+#ifdef VIVENAS
 	/* Find an FD */
-	status = fsal_find_fd(&fsal_fd, obj_hdl, &myself->mh_file.fd,
+	status = fsal_find_fd((struct fsal_fd**)&fsal_fd, obj_hdl, (struct fsal_fd*)&myself->mh_file.fd,
 			      &myself->mh_file.share, bypass, read_arg->state,
 			      FSAL_O_READ, mem_open_func, mem_close_func,
 			      &has_lock, &closefd, false,
 			      &reusing_open_state_fd);
+#else
+	status = fsal_find_fd(&fsal_fd, obj_hdl, &myself->mh_file.fd,
+		&myself->mh_file.share, bypass, read_arg->state,
+		FSAL_O_READ, mem_open_func, mem_close_func,
+		&has_lock, &closefd, false,
+		&reusing_open_state_fd);
+
+#endif
 	if (FSAL_IS_ERROR(status)) {
 		done_cb(obj_hdl, status, read_arg, caller_arg);
 		return;
 	}
-
 	read_arg->io_amount = 0;
 
 	for (i = 0; i < read_arg->iov_count; i++) {
@@ -1979,7 +2045,7 @@ void mem_write2(struct fsal_obj_handle *obj_hdl,
 {
 	struct mem_fsal_obj_handle *myself = container_of(obj_hdl,
 				  struct mem_fsal_obj_handle, obj_handle);
-	struct fsal_fd *fsal_fd;
+	struct vn_fd *fsal_fd;
 	bool has_lock, closefd = false;
 	fsal_status_t status = {ERR_FSAL_NO_ERROR, 0};
 	bool reusing_open_state_fd = false;
@@ -1999,7 +2065,7 @@ void mem_write2(struct fsal_obj_handle *obj_hdl,
 	}
 
 	/* Find an FD */
-	status = fsal_find_fd(&fsal_fd, obj_hdl, &myself->mh_file.fd,
+	status = fsal_find_fd((struct fsal_fd**)&fsal_fd, obj_hdl, (struct fsal_fd*)&myself->mh_file.fd,
 			      &myself->mh_file.share, bypass, write_arg->state,
 			      FSAL_O_WRITE, mem_open_func, mem_close_func,
 			      &has_lock, &closefd, false,
@@ -2141,7 +2207,7 @@ fsal_status_t mem_lock_op2(struct fsal_obj_handle *obj_hdl,
 {
 	struct mem_fsal_obj_handle *myself = container_of(obj_hdl,
 				  struct mem_fsal_obj_handle, obj_handle);
-	struct fsal_fd fsal_fd = {0}, *fdp = &fsal_fd;
+	struct vn_fd fsal_fd = {0}, *fdp = &fsal_fd;
 	bool has_lock, closefd = false;
 	bool bypass = false;
 	fsal_openflags_t openflags;
@@ -2176,7 +2242,7 @@ fsal_status_t mem_lock_op2(struct fsal_obj_handle *obj_hdl,
 		return fsalstat(ERR_FSAL_NOTSUPP, 0);
 	}
 
-	status = fsal_find_fd(&fdp, obj_hdl, &myself->mh_file.fd,
+	status = fsal_find_fd((struct fsal_fd**)&fdp, obj_hdl, (struct fsal_fd*)&myself->mh_file.fd,
 			      &myself->mh_file.share, bypass, state,
 			      openflags, mem_open_func, mem_close_func,
 			      &has_lock, &closefd, true,
@@ -2208,7 +2274,11 @@ fsal_status_t mem_lock_op2(struct fsal_obj_handle *obj_hdl,
 fsal_status_t mem_close2(struct fsal_obj_handle *obj_hdl,
 			 struct state_t *state)
 {
-	struct fsal_fd *my_fd = (struct fsal_fd *)(state + 1);
+#ifdef VIVENAS
+	struct vn_fd* my_fd = container_of(state, struct vn_fd, state);
+#else
+	struct fsal_fd* my_fd = (struct fsal_fd*)(state + 1);
+#endif
 	struct mem_fsal_obj_handle *myself = container_of(obj_hdl,
 				  struct mem_fsal_obj_handle, obj_handle);
 	fsal_status_t status;
@@ -2460,6 +2530,7 @@ fsal_status_t mem_lookup_path(struct fsal_export *exp_hdl,
 	if (mfe->root_handle == NULL) {
 		mfe->root_handle = mem_alloc_handle(NULL,
 						    mfe->export_path,
+							2, //VN_ROOT_INO
 						    DIRECTORY,
 						    mfe,
 						    &attrs);

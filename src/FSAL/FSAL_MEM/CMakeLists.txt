@@ -24,8 +24,15 @@ add_definitions(
 )
 
 set( LIB_PREFIX 64)
+set(VIVENAS_HOME ../../../../ViveNAS)
+set(ROCKSDB_HOME ${VIVENAS_HOME}/rocksdb)
+set(PUREFLASH_HOME  ${VIVENAS_HOME}/PureFlash)
+set(ZOOKEEPER_SOURCE ${PUREFLASH_HOME}/thirdParty/zookeeper/zookeeper-client/zookeeper-client-c)
 
 ########### next target ###############
+INCLUDE_DIRECTORIES( ${VIVENAS_HOME}/include ${ROCKSDB_HOME} ${ROCKSDB_HOME}/include ${PUREFLASH_HOME}/common/include ${PUREFLASH_HOME}/pfs/nlohmann_json/include )
+LINK_DIRECTORIES(/root/v2/ViveNAS/build/bin ) 
+#LINK_DIRECTORIES(${VIVENAS_HOME}/build/bin ${PUREFLASH_HOME}/build_deb/bin ${ROCKSDB_HOME} ${ZOOKEEPER_SOURCE}/.libs)             )
 
 SET(fsalmem_LIB_SRCS
    mem_export.c
@@ -43,6 +50,7 @@ target_link_libraries(fsalmem
   ${SYSTEM_LIBRARIES}
   ${LTTNG_LIBRARIES}
   ${LDFLAG_DISALLOW_UNDEF}
+  fsalvivenas
 )
 
 set_target_properties(fsalmem PROPERTIES VERSION 4.2.0 SOVERSION 4)

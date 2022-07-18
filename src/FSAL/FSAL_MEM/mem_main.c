@@ -48,6 +48,8 @@
 
 static const char memname[] = "MEM";
 
+void 	__PfAof_init();
+
 /* my module private storage */
 struct mem_fsal_module MEM = {
 	.fsal = {
@@ -256,6 +258,7 @@ MODULE_INIT void init(void)
 {
 	int retval;
 	struct fsal_module *myself = &MEM.fsal;
+	__PfAof_init();
 
 	retval = register_fsal(myself, memname, FSAL_MAJOR_VERSION,
 			       FSAL_MINOR_VERSION, FSAL_ID_NO_PNFS);
