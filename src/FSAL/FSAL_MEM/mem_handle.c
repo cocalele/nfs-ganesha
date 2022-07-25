@@ -778,15 +778,54 @@ _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 
 	return hdl;
 }
+#if 1
+static void inode2fsalattr(struct fsal_attrlist* attrs, struct ViveInode* inode)
+{
 
+	//attrs->valid_mask |= ATTR_TYPE | ATTR_FSID | ATTR_RAWDEV | ATTR_FILEID;
+
+	//attrs->supported = ATTRS_POSIX;
+	//attrs->fileid = inode->i_no;
+	////attrs->atime = inode->i_atime;
+	////attrs->ctime = inode->i_ctime;
+	//attrs->filesize = inode->i_size;
+	//attrs->mode = inode->i_mode;
+	//attrs->type = posix2fsal_type(inode->i_mode);
+	//attrs->owner = inode->i_uid;
+	//attrs->group = inode->i_gid;
+	//attrs->numlinks = inode->i_links_count;
+	//attrs->spaceused = 0;
+
+	struct stat fstat;
+
+	fstat.st_atime = inode->i_atime;
+	fstat.st_ctime = inode->i_ctime;
+	fstat.st_blksize = 4096;
+	fstat.st_dev = 0;
+	fstat.st_ino = inode->i_no;
+	fstat.st_nlink = inode->i_links_count;
+	fstat.st_gid = inode->i_gid;
+	fstat.st_uid = inode->i_uid;
+	fstat.st_mode = inode->i_mode;
+	fstat.st_size = inode->i_size;
+	fstat.st_blocks = (fstat.st_size + fstat.st_blksize - 1) / fstat.st_blksize;
+
+	posix2fsal_attributes_all(&fstat, attrs);
+
+}
+#endif
+#define VIVENAS_LOOKUP 1
 #define  mem_int_lookup(d, p, e) _mem_int_lookup(d, p, e, __func__, __LINE__)
 static fsal_status_t _mem_int_lookup(struct mem_fsal_obj_handle *dir,
 				     const char *path,
 				     struct mem_fsal_obj_handle **entry,
 				     const char *func, int line)
 {
+#ifdef VIVENAS_LOOKUP
+#else
 	struct mem_dirent *dirent;
-
+#endif
+	
 	*entry = NULL;
 	LogFullDebug(COMPONENT_FSAL, "Lookup %s in %p", path, dir);
 
@@ -809,15 +848,22 @@ static fsal_status_t _mem_int_lookup(struct mem_fsal_obj_handle *dir,
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
 
-#if 1 //enable this will cause IO hang
-	int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, NULL);
-	(void)ino;
-#endif
+#ifdef VIVENAS_LOOKUP //enable this will cause IO hang
+	struct ViveInode vn_inode;
+	int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, &vn_inode);
+	if(ino < 0)
+		return fsalstat(ERR_FSAL_NOENT, 0);
+	struct fsal_attrlist attrs;
+	inode2fsalattr(&attrs, &vn_inode);
+	struct mem_fsal_obj_handle* hdl = mem_alloc_handle(dir, path, ino, posix2fsal_type(vn_inode.i_mode), dir->mfo_exp, &attrs);
+	*entry = hdl;
+#else
 	dirent = mem_dirent_lookup(dir, path);
 	if (!dirent) {
 		return fsalstat(ERR_FSAL_NOENT, 0);
 	}
 	*entry = dirent->hdl;
+#endif
 
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, mem_lookup, func, line, &(*entry)->obj_handle,
@@ -901,7 +947,7 @@ static fsal_status_t mem_create_obj(struct mem_fsal_obj_handle *parent,
 	if (!hdl)
 		return fsalstat(ERR_FSAL_NOMEM, 0);
 	//hdl->mh_file.fd.vf = vn_open_file(parent->mfo_exp->mount_ctx, parent->inode, name, O_RDWR | O_CREAT, m | 00644);
-	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx,ino,  O_RDWR | O_CREAT, m | 00644);
+	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx,ino,  O_RDWR , m | 00644);
 	*new_obj = &hdl->obj_handle;
 
 	if (attrs_out != NULL)
@@ -1896,12 +1942,12 @@ void mem_read2(struct fsal_obj_handle *obj_hdl,
 	struct vn_fd* fsal_fd;
 #else
 	struct fsal_fd *fsal_fd;
+	uint64_t offset = read_arg->offset;
+	int i;
 #endif
 	bool has_lock, closefd = false;
 	fsal_status_t status = {ERR_FSAL_NO_ERROR, 0};
 	bool reusing_open_state_fd = false;
-	uint64_t offset = read_arg->offset;
-	int i;
 	struct mem_fsal_export *mem_export =
 	      container_of(op_ctx->fsal_export, struct mem_fsal_export, export);
 	uint32_t async_type = atomic_fetch_uint32_t(&mem_export->async_type);
@@ -1935,6 +1981,16 @@ void mem_read2(struct fsal_obj_handle *obj_hdl,
 	}
 	read_arg->io_amount = 0;
 
+#ifdef VIVENAS
+	size_t sz = vn_readv(mem_export->mount_ctx, myself->mh_file.fd.vf, read_arg->iov, read_arg->iov_count, read_arg->offset);
+	if (sz < 0) {
+		LogCrit(COMPONENT_FSAL, "vn_writev failed, rc:%ld", sz);
+		//todo: return sz;
+
+	}
+	read_arg->io_amount = sz;
+#else
+
 	for (i = 0; i < read_arg->iov_count; i++) {
 		size_t bufsize;
 
@@ -1964,7 +2020,7 @@ void mem_read2(struct fsal_obj_handle *obj_hdl,
 		read_arg->io_amount += bufsize;
 		offset += bufsize;
 	}
-
+#endif
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, mem_read, __func__, __LINE__, obj_hdl,
 		   myself->m_name, read_arg->state, myself->attrs.filesize,
@@ -2094,7 +2150,12 @@ void mem_write2(struct fsal_obj_handle *obj_hdl,
 		write_arg->io_amount += bufsize;
 		offset += bufsize;
 	}
+	size_t sz = vn_writev(mem_export->mount_ctx, myself->mh_file.fd.vf, write_arg->iov, write_arg->iov_count, write_arg->offset);
+	if(sz <0){
+		LogCrit(COMPONENT_FSAL, "vn_writev failed, rc:%ld", sz);
+		//todo: return sz;
 
+	}
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, mem_write, __func__, __LINE__, obj_hdl,
 			   myself->m_name, write_arg->state,
