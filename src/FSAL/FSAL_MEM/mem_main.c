@@ -296,3 +296,26 @@ MODULE_FINI void finish(void)
 		abort();
 	}
 }
+
+
+
+void vns5log(int level, const char* format, ...)
+{
+	static const char* stderr_log[] = { KRED "FATA" KNRM, KRED "ERRO" KNRM, KYEL "WARN" KNRM, KBLU "INFO" KNRM, KGRN "DEBU" KNRM };
+	static const char** log_level_str = stderr_log;
+
+	static __thread char buffer[2048];
+	va_list args;
+	va_start(args, format);
+	vsnprintf(buffer, sizeof(buffer), format, args);
+	va_end(args);
+	char time_buf[100];
+	struct timespec tp;
+	clock_gettime(CLOCK_REALTIME, &tp);
+
+	strftime(time_buf, 100, "%Y-%m-%d %H:%M:%S", localtime(&tp.tv_sec));
+	snprintf(&time_buf[strlen(time_buf)], 100, ".%03d", (int)(tp.tv_nsec / 1000000L));
+	fprintf(stderr, "[%s %s]%s\n", log_level_str[level], time_buf, buffer);
+	if (level == S5LOG_LEVEL_FATAL)
+		exit(-1);
+}

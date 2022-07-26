@@ -100,6 +100,7 @@ struct mem_fsal_obj_handle {
 	struct fsal_obj_handle obj_handle;
 	struct fsal_attrlist attrs;
 	uint64_t inode;
+	struct ViveInode* vninode;
 	char handle[V4_FH_OPAQUE_SIZE];
 	union {
 		struct {
@@ -237,3 +238,47 @@ extern struct mem_fsal_module MEM;
 #define KMAG  "\x1B[35m"
 #define KCYN  "\x1B[36m"
 #define KWHT  "\x1B[37m"
+
+
+
+
+
+
+void vns5log(int level, const char* format, ...);
+
+#define S5LOG_LEVEL_FATAL 0
+#define S5LOG_LEVEL_ERROR 1
+#define S5LOG_LEVEL_WARN 2
+#define S5LOG_LEVEL_INFO 3
+#define S5LOG_LEVEL_DEBUG 4
+/**
+ * log the fatal type information.
+ */
+#define S5LOG_FATAL(fmt,args...)							\
+vns5log(S5LOG_LEVEL_FATAL,  fmt "(%s:%d:%s) " , ##args, __FILE__ , __LINE__ , __FUNCTION__ )
+
+ /**
+  * log the error type information.
+  */
+#define S5LOG_ERROR(fmt,args...)							\
+vns5log(S5LOG_LEVEL_ERROR,  fmt "(%s:%d:%s) " ,  ##args, __FILE__ , __LINE__ , __FUNCTION__ )
+
+  /**
+   * log the warn type information.
+   */
+#define S5LOG_WARN(fmt,args...)							\
+vns5log(S5LOG_LEVEL_WARN,  fmt "(%s:%d:%s) " ,  ##args, __FILE__ , __LINE__ , __FUNCTION__ )
+
+
+   /**
+	* log the info type information.
+	*/
+#define S5LOG_INFO(fmt,args...)							\
+vns5log(S5LOG_LEVEL_INFO,  fmt "(%s:%d:%s) " ,  ##args, __FILE__ , __LINE__ , __FUNCTION__ )
+
+
+	/**
+	 * log the debug type information.
+	 */
+#define S5LOG_DEBUG(fmt,args...)							\
+vns5log(S5LOG_LEVEL_DEBUG,  fmt "(%s:%d:%s) " ,  ##args, __FILE__ , __LINE__ , __FUNCTION__ )

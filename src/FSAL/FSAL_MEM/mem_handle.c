@@ -45,7 +45,6 @@
 #include "nfs_core.h"
 #include "common_utils.h"
 #include "vivenas.h"
-#include "pf_log.h"
 
 static void mem_release(struct fsal_obj_handle *obj_hdl);
 
@@ -570,9 +569,8 @@ void vn_say_hello(const char* s);
 static fsal_status_t mem_open_my_fd(struct mem_fsal_obj_handle* myself, struct vn_fd *fd,
 				    fsal_openflags_t openflags)
 {
-	fprintf(stderr, KGRN "VIVE=== call in mem_open_my_fd, name:%s, mount ctx:%p\n" KNRM, myself->m_name, myself->mfo_exp->mount_ctx);
-	fd->vf = vn_open_file_by_inode(myself->mfo_exp->mount_ctx, myself->inode, O_RDWR|O_CREAT, 0);
-	vn_say_hello("Call ing");
+	S5LOG_DEBUG( "VIVE=== call in mem_open_my_fd, name:%s, mount ctx:%p" , myself->m_name, myself->mfo_exp->mount_ctx);
+	fd->vf = vn_open_file_by_inode(myself->mfo_exp->mount_ctx, myself->vninode, O_RDWR|O_CREAT, 0);
 	fd->openflags = FSAL_O_NFS_FLAGS(openflags);
 
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
@@ -641,7 +639,7 @@ static fsal_status_t mem_close_func(struct fsal_obj_handle *obj_hdl,
 static struct mem_fsal_obj_handle *
 _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 		  const char *name,
-		  inode_no_t ino,
+		  struct ViveInode* inode,
 		  object_file_type_t type,
 		  struct mem_fsal_export *mfe,
 		  struct fsal_attrlist *attrs,
@@ -661,7 +659,8 @@ _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 	/* Establish tree details for this directory */
 	hdl->m_name = gsh_strdup(name);
 	hdl->obj_handle.fileid = atomic_postinc_uint64_t(&mem_inode_number);
-	hdl->inode = ino;
+	hdl->inode = inode->i_no;
+	hdl->vninode = inode;
 	hdl->datasize = MEM.inode_size;
 	glist_init(&hdl->dirents);
 	PTHREAD_RWLOCK_wrlock(&mfe->mfe_exp_lock);
@@ -800,6 +799,7 @@ static void inode2fsalattr(struct fsal_attrlist* attrs, struct ViveInode* inode)
 
 	fstat.st_atime = inode->i_atime;
 	fstat.st_ctime = inode->i_ctime;
+	fstat.st_mtime = inode->i_ctime;
 	fstat.st_blksize = 4096;
 	fstat.st_dev = 0;
 	fstat.st_ino = inode->i_no;
@@ -849,13 +849,13 @@ static fsal_status_t _mem_int_lookup(struct mem_fsal_obj_handle *dir,
 	}
 
 #ifdef VIVENAS_LOOKUP //enable this will cause IO hang
-	struct ViveInode vn_inode;
+	struct ViveInode *vn_inode;
 	int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, &vn_inode);
 	if(ino < 0)
 		return fsalstat(ERR_FSAL_NOENT, 0);
 	struct fsal_attrlist attrs;
-	inode2fsalattr(&attrs, &vn_inode);
-	struct mem_fsal_obj_handle* hdl = mem_alloc_handle(dir, path, ino, posix2fsal_type(vn_inode.i_mode), dir->mfo_exp, &attrs);
+	inode2fsalattr(&attrs, vn_inode);
+	struct mem_fsal_obj_handle* hdl = mem_alloc_handle(dir, path, vn_inode, posix2fsal_type(vn_inode->i_mode), dir->mfo_exp, &attrs);
 	*entry = hdl;
 #else
 	dirent = mem_dirent_lookup(dir, path);
@@ -933,25 +933,29 @@ static fsal_status_t mem_create_obj(struct mem_fsal_obj_handle *parent,
 		/* Some other error */
 		return status;
 	}
-	mode_t m = fsal2posix_filetype(parent->obj_handle.type);
-	
-	
-	int64_t ino = vn_create_file(parent->mfo_exp->mount_ctx, parent->inode, name, m | 00644, NULL);
+	mode_t m = fsal2posix_filetype(type);
+	//S5LOG_DEBUG("will create file:%s mode:00%o", name, m);
+	struct ViveInode* vninode;
+	int64_t ino = vn_create_file(parent->mfo_exp->mount_ctx, parent->inode, name, m | 00666, &vninode);
+	if(ino<0){
+		return fsalstat(ERR_FSAL_IO, 0);
+	}
 	/* allocate an obj_handle and fill it up */
 	hdl = mem_alloc_handle(parent,
 			       name,
-					ino,
+					vninode,
 			       type,
 			       mfe,
 			       attrs_in);
 	if (!hdl)
 		return fsalstat(ERR_FSAL_NOMEM, 0);
+	hdl->vninode = vninode;
 	//hdl->mh_file.fd.vf = vn_open_file(parent->mfo_exp->mount_ctx, parent->inode, name, O_RDWR | O_CREAT, m | 00644);
-	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx,ino,  O_RDWR , m | 00644);
+	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx, vninode,  O_RDWR , m | 00666);
 	*new_obj = &hdl->obj_handle;
 
 	if (attrs_out != NULL)
-		fsal_copy_attrs(attrs_out, &hdl->attrs, false);
+		inode2fsalattr(attrs_out,vninode);
 
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
 }
@@ -975,7 +979,7 @@ static fsal_status_t mem_lookup(struct fsal_obj_handle *parent,
 {
 	struct mem_fsal_obj_handle *myself, *hdl = NULL;
 	fsal_status_t status;
-
+	int lock_applyed = 0;
 	myself = container_of(parent,
 			      struct mem_fsal_obj_handle,
 			      obj_handle);
@@ -983,8 +987,10 @@ static fsal_status_t mem_lookup(struct fsal_obj_handle *parent,
 	/* Check if this context already holds the lock on
 	 * this directory.
 	 */
-	if (op_ctx->fsal_private != parent)
+	if (op_ctx->fsal_private != parent) {
 		PTHREAD_RWLOCK_rdlock(&parent->obj_lock);
+		lock_applyed = 1;
+	}
 	else
 		LogFullDebug(COMPONENT_FSAL,
 			     "Skipping lock for %s",
@@ -999,6 +1005,10 @@ static fsal_status_t mem_lookup(struct fsal_obj_handle *parent,
 	mem_int_get_ref(hdl);
 
 out:
+	if (lock_applyed && op_ctx->fsal_private == parent){
+		S5LOG_ERROR("Lock applied but not released!");
+	}
+
 	if (op_ctx->fsal_private != parent)
 		PTHREAD_RWLOCK_unlock(&parent->obj_lock);
 
@@ -1258,6 +1268,7 @@ static fsal_status_t mem_getattrs(struct fsal_obj_handle *obj_hdl,
 {
 	struct mem_fsal_obj_handle *myself =
 		container_of(obj_hdl, struct mem_fsal_obj_handle, obj_handle);
+	S5LOG_DEBUG("call mem_getattrs on inode:%d", myself->inode);
 
 	if (!myself->is_export && glist_empty(&myself->dirents)) {
 		/* Removed entry - stale */
@@ -1283,9 +1294,11 @@ static fsal_status_t mem_getattrs(struct fsal_obj_handle *obj_hdl,
 		     myself,
 		     myself->m_name,
 		     myself->attrs.numlinks);
-
+#ifdef VIVENAS
+	inode2fsalattr(outattrs, myself->vninode);
+#else
 	fsal_copy_attrs(outattrs, &myself->attrs, false);
-
+#endif
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
 }
 
@@ -2584,14 +2597,14 @@ fsal_status_t mem_lookup_path(struct fsal_export *exp_hdl,
 			path);
 		return fsalstat(ERR_FSAL_NOENT, ENOENT);
 	}
-
+	
 	attrs.valid_mask = ATTR_MODE;
 	attrs.mode = 0777;
 
 	if (mfe->root_handle == NULL) {
 		mfe->root_handle = mem_alloc_handle(NULL,
 						    mfe->export_path,
-							2, //VN_ROOT_INO
+							vn_get_root_inode(mfe->mount_ctx), //VN_ROOT_INO
 						    DIRECTORY,
 						    mfe,
 						    &attrs);
