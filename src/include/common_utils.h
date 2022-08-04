@@ -161,6 +161,7 @@ extern size_t gsh_strnlen(const char *s, size_t max);
 									\
 		rc = pthread_rwlock_wrlock(_lock);			\
 		if (rc == 0) {						\
+            /*fprintf(stdout, "====LOCK wrlock on %p by 0x%lx tid:%d\n", _lock, pthread_self(), gettid());*/ \
 			LogFullDebug(COMPONENT_RW_LOCK,			\
 				     "Got write lock on %p (%s) "	\
 				     "at %s:%d", _lock, #_lock,		\
@@ -186,6 +187,7 @@ extern size_t gsh_strnlen(const char *s, size_t max);
 									\
 		rc = pthread_rwlock_rdlock(_lock);			\
 		if (rc == 0) {						\
+            /*fprintf(stdout, "====LOCK rdlock on %p by 0x%lx tid:%d\n", _lock, pthread_self(), gettid());*/ \
 			LogFullDebug(COMPONENT_RW_LOCK,			\
 				     "Got read lock on %p (%s) "	\
 				     "at %s:%d", _lock, #_lock,		\
@@ -211,6 +213,7 @@ extern size_t gsh_strnlen(const char *s, size_t max);
 									\
 		rc = pthread_rwlock_unlock(_lock);			\
 		if (rc == 0) {						\
+            /*fprintf(stdout, "====LOCK unlock on %p by 0x%lx tid:%d\n", _lock, pthread_self(), gettid());*/ \
 			LogFullDebug(COMPONENT_RW_LOCK,			\
 				     "Unlocked %p (%s) at %s:%d",       \
 				     _lock, #_lock,			\

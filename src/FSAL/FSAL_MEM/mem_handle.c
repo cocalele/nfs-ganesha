@@ -266,7 +266,6 @@ static void mem_insert_obj(struct mem_fsal_obj_handle *parent,
 	PTHREAD_RWLOCK_wrlock(&child->obj_handle.obj_lock);
 	glist_add_tail(&child->dirents, &dirent->dlist);
 	PTHREAD_RWLOCK_unlock(&child->obj_handle.obj_lock);
-
 	/* Link into parent */
 	PTHREAD_RWLOCK_wrlock(&parent->obj_handle.obj_lock);
 	/* Name tree */
@@ -314,18 +313,18 @@ mem_dirent_lookup(struct mem_fsal_obj_handle *dir, const char *name)
  * @param[in] dirent	Current dirent
  * @return Next dirent, or NULL if at EOD
  */
-static struct mem_dirent *
-mem_dirent_next(struct mem_dirent *dirent)
-{
-	struct avltree_node *node;
-
-	node = avltree_next(&dirent->avl_i);
-	if (!node) {
-		return NULL;
-	}
-
-	return avltree_container_of(node, struct mem_dirent, avl_i);
-}
+//static struct mem_dirent *
+//mem_dirent_next(struct mem_dirent *dirent)
+//{
+//	struct avltree_node *node;
+//
+//	node = avltree_next(&dirent->avl_i);
+//	if (!node) {
+//		return NULL;
+//	}
+//
+//	return avltree_container_of(node, struct mem_dirent, avl_i);
+//}
 
 /**
  * @brief Seek to a location in a directory
@@ -338,42 +337,42 @@ mem_dirent_next(struct mem_dirent *dirent)
  * @param[in] seekloc	Location to seek to
  * @return Dirent associated with seekloc
  */
-static struct mem_dirent *
-mem_readdir_seekloc(struct mem_fsal_obj_handle *dir, fsal_cookie_t seekloc)
-{
-	struct mem_dirent *dirent;
-	struct avltree_node *node;
-	struct mem_dirent key;
-
-	if (!seekloc) {
-		/* Start from the beginning.  We walk the index tree, so always
-		 * grab from the index tree. */
-		node = avltree_first(&dir->mh_dir.avl_index);
-		if (!node) {
-			return NULL;
-		}
-		dirent = avltree_container_of(node, struct mem_dirent,
-					      avl_i);
-		return dirent;
-	}
-
-
-	memset(&key, 0, sizeof(key));
-	key.d_index = seekloc;
-	node = avltree_lookup(&key.avl_i, &dir->mh_dir.avl_index);
-	if (!node) {
-		/* Dirent was probably deleted.  Find the next one */
-		node = avltree_sup(&key.avl_i, &dir->mh_dir.avl_index);
-	}
-	if (!node) {
-		/* Done */
-		return NULL;
-	}
-
-	dirent = avltree_container_of(node, struct mem_dirent, avl_i);
-
-	return dirent;
-}
+//static struct mem_dirent *
+//mem_readdir_seekloc(struct mem_fsal_obj_handle *dir, fsal_cookie_t seekloc)
+//{
+//	struct mem_dirent *dirent;
+//	struct avltree_node *node;
+//	struct mem_dirent key;
+//
+//	if (!seekloc) {
+//		/* Start from the beginning.  We walk the index tree, so always
+//		 * grab from the index tree. */
+//		node = avltree_first(&dir->mh_dir.avl_index);
+//		if (!node) {
+//			return NULL;
+//		}
+//		dirent = avltree_container_of(node, struct mem_dirent,
+//					      avl_i);
+//		return dirent;
+//	}
+//
+//
+//	memset(&key, 0, sizeof(key));
+//	key.d_index = seekloc;
+//	node = avltree_lookup(&key.avl_i, &dir->mh_dir.avl_index);
+//	if (!node) {
+//		/* Dirent was probably deleted.  Find the next one */
+//		node = avltree_sup(&key.avl_i, &dir->mh_dir.avl_index);
+//	}
+//	if (!node) {
+//		/* Done */
+//		return NULL;
+//	}
+//
+//	dirent = avltree_container_of(node, struct mem_dirent, avl_i);
+//
+//	return dirent;
+//}
 
 /**
  * @brief Update the change attribute of the FSAL object
@@ -443,7 +442,6 @@ static void mem_remove_dirent(struct mem_fsal_obj_handle *parent,
 	dirent = mem_dirent_lookup(parent, name);
 	if (dirent)
 		mem_remove_dirent_locked(parent, dirent);
-
 	PTHREAD_RWLOCK_unlock(&parent->obj_handle.obj_lock);
 }
 
@@ -487,13 +485,16 @@ void mem_clean_export(struct mem_fsal_obj_handle *root)
  */
 void mem_clean_all_dirents(struct mem_fsal_obj_handle *parent)
 {
+#ifdef VIVENAS_IGNORE
+	(void)parent;
+#else
 	struct avltree_node *node;
 	struct mem_dirent *dirent;
-
 	while ((node = avltree_first(&parent->mh_dir.avl_name))) {
 		dirent = avltree_container_of(node, struct mem_dirent, avl_n);
 		mem_remove_dirent_locked(parent, dirent);
 	}
+#endif
 }
 
 static void mem_copy_attrs_mask(struct fsal_attrlist *attrs_in,
@@ -571,6 +572,9 @@ static fsal_status_t mem_open_my_fd(struct mem_fsal_obj_handle* myself, struct v
 {
 	S5LOG_DEBUG( "VIVE=== call in mem_open_my_fd, name:%s, mount ctx:%p" , myself->m_name, myself->mfo_exp->mount_ctx);
 	fd->vf = vn_open_file_by_inode(myself->mfo_exp->mount_ctx, myself->vninode, O_RDWR|O_CREAT, 0);
+	if(fd->vf == NULL){
+		S5LOG_ERROR("Failed open file:%s ino:%ld", myself->m_name, myself->vninode->i_no);
+	}
 	fd->openflags = FSAL_O_NFS_FLAGS(openflags);
 
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
@@ -588,7 +592,7 @@ static fsal_status_t mem_close_my_fd(struct vn_fd *fd)
 		return fsalstat(ERR_FSAL_NOT_OPENED, 0);
 
 	fd->openflags = FSAL_O_CLOSED;
-
+	fd->vf = NULL;
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
 }
 
@@ -653,7 +657,7 @@ _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 		/* Regular files need space to read/write */
 		isize += MEM.inode_size;
 	}
-
+	S5LOG_DEBUG("alloc handle for inode:%d name:%s", inode->i_no, name);
 	hdl = gsh_calloc(1, isize);
 
 	/* Establish tree details for this directory */
@@ -777,7 +781,6 @@ _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 
 	return hdl;
 }
-#if 1
 static void inode2fsalattr(struct fsal_attrlist* attrs, struct ViveInode* inode)
 {
 
@@ -813,18 +816,13 @@ static void inode2fsalattr(struct fsal_attrlist* attrs, struct ViveInode* inode)
 	posix2fsal_attributes_all(&fstat, attrs);
 
 }
-#endif
-#define VIVENAS_LOOKUP 1
 #define  mem_int_lookup(d, p, e) _mem_int_lookup(d, p, e, __func__, __LINE__)
 static fsal_status_t _mem_int_lookup(struct mem_fsal_obj_handle *dir,
 				     const char *path,
 				     struct mem_fsal_obj_handle **entry,
 				     const char *func, int line)
 {
-#ifdef VIVENAS_LOOKUP
-#else
 	struct mem_dirent *dirent;
-#endif
 	
 	*entry = NULL;
 	LogFullDebug(COMPONENT_FSAL, "Lookup %s in %p", path, dir);
@@ -848,15 +846,21 @@ static fsal_status_t _mem_int_lookup(struct mem_fsal_obj_handle *dir,
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
 
-#ifdef VIVENAS_LOOKUP //enable this will cause IO hang
-	struct ViveInode *vn_inode;
-	int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, &vn_inode);
-	if(ino < 0)
-		return fsalstat(ERR_FSAL_NOENT, 0);
-	struct fsal_attrlist attrs;
-	inode2fsalattr(&attrs, vn_inode);
-	struct mem_fsal_obj_handle* hdl = mem_alloc_handle(dir, path, vn_inode, posix2fsal_type(vn_inode->i_mode), dir->mfo_exp, &attrs);
-	*entry = hdl;
+#ifdef VIVENAS
+	dirent = mem_dirent_lookup(dir, path);
+	if (dirent) {
+		*entry = dirent->hdl;
+	} else {
+		struct ViveInode *vn_inode;
+		int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, &vn_inode);
+		if(ino < 0)
+			return fsalstat(ERR_FSAL_NOENT, 0);
+		struct fsal_attrlist attrs;
+		inode2fsalattr(&attrs, vn_inode);
+		//though not found in mem_fsal avl tree, the inode may still exists in underlying FS. this is difference with original mem_fsal
+		struct mem_fsal_obj_handle* hdl = mem_alloc_handle(dir, path, vn_inode, posix2fsal_type(vn_inode->i_mode), dir->mfo_exp, &attrs);
+		*entry = hdl;
+	}
 #else
 	dirent = mem_dirent_lookup(dir, path);
 	if (!dirent) {
@@ -934,9 +938,20 @@ static fsal_status_t mem_create_obj(struct mem_fsal_obj_handle *parent,
 		return status;
 	}
 	mode_t m = fsal2posix_filetype(type);
-	//S5LOG_DEBUG("will create file:%s mode:00%o", name, m);
+#if 1 //
+	if (type == DIRECTORY)
+		m |= 00777;
+	else if(type == REGULAR_FILE)
+		m |= 00666;
+	else
+		m |= attrs_in->mode;
+#else
+	m |= attrs_in->mode;
+#endif
+	S5LOG_DEBUG("will create file:%s mode:00%o, uid:%d", name, m, attrs_in->owner);
 	struct ViveInode* vninode;
-	int64_t ino = vn_create_file(parent->mfo_exp->mount_ctx, parent->inode, name, m | 00666, &vninode);
+	int64_t ino = vn_create_file(parent->mfo_exp->mount_ctx, parent->inode, name, m , 
+		             (int16_t)attrs_in->owner, (int16_t)attrs_in->group, &vninode);
 	if(ino<0){
 		return fsalstat(ERR_FSAL_IO, 0);
 	}
@@ -951,7 +966,7 @@ static fsal_status_t mem_create_obj(struct mem_fsal_obj_handle *parent,
 		return fsalstat(ERR_FSAL_NOMEM, 0);
 	hdl->vninode = vninode;
 	//hdl->mh_file.fd.vf = vn_open_file(parent->mfo_exp->mount_ctx, parent->inode, name, O_RDWR | O_CREAT, m | 00644);
-	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx, vninode,  O_RDWR , m | 00666);
+	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx, vninode,  O_RDWR , m );
 	*new_obj = &hdl->obj_handle;
 
 	if (attrs_out != NULL)
@@ -1031,7 +1046,87 @@ out:
  * @param[in] cb	callback function
  * @param[out] eof	eof marker true == end of dir
  */
+#ifdef VIVENAS
+static fsal_status_t mem_readdir(struct fsal_obj_handle* dir_hdl,
+	fsal_cookie_t* whence,
+	void* dir_state,
+	fsal_readdir_cb cb,
+	attrmask_t attrmask,
+	bool* eof)
+{
+	struct mem_fsal_obj_handle* myself;
+	//fsal_cookie_t cookie = 0;
+	int64_t read_off = 0;
+	struct fsal_attrlist attrs;
+	enum fsal_dir_result cb_rc;
+	int count = 0;
+	myself = container_of(dir_hdl,
+		struct mem_fsal_obj_handle,
+		obj_handle);
 
+	if (whence != NULL)
+		read_off = *whence;
+
+	*eof = true;
+
+#ifdef USE_LTTNG
+	tracepoint(fsalmem, vn_readdir, __func__, __LINE__, dir_hdl,
+		myself->m_name, cookie);
+#endif
+	S5LOG_DEBUG("readdir hdl = % p, name = % s",
+		myself, myself->m_name);
+
+	PTHREAD_RWLOCK_rdlock(&dir_hdl->obj_lock);
+
+	/* Use fsal_private to signal to lookup that we hold
+	 * the lock.
+	 */
+	op_ctx->fsal_private = dir_hdl;
+	S5LOG_DEBUG("read dir from offset:%ld", read_off);
+
+	struct vn_inode_iterator* it;
+	it = vn_begin_iterate_dir(myself->mfo_exp->mount_ctx, myself->vninode->i_no);
+	S5LOG_DEBUG("Create dir iterator:%p", it);
+
+
+	char entry_name[256];
+	struct ViveInode* inode;
+	int64_t i = 0;
+	/* Always run in index order */
+	for (inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name)); inode != NULL; i++) {
+		if (i < read_off)
+			continue;
+		fsal_prepare_attrs(&attrs, attrmask);
+		inode2fsalattr(&attrs, inode);
+
+		S5LOG_DEBUG("readdir return:%s", entry_name);
+		struct mem_fsal_obj_handle* hdl = mem_alloc_handle(myself, entry_name, inode, posix2fsal_type(inode->i_mode),  myself->mfo_exp, &attrs);
+
+		cb_rc = cb(entry_name, &hdl->obj_handle, &attrs, dir_state, i);
+
+		fsal_release_attrs(&attrs);
+
+		count++;
+
+		if (cb_rc >= DIR_TERMINATE) {
+			*eof = false;
+			vn_release_iterator(myself->mfo_exp->mount_ctx, it);
+			break;
+		}
+	}
+
+	if (*eof == true) {
+		S5LOG_DEBUG("release dir iterator:%p", it);
+
+		vn_release_iterator(myself->mfo_exp->mount_ctx, it);
+	}
+	op_ctx->fsal_private = NULL;
+
+	PTHREAD_RWLOCK_unlock(&dir_hdl->obj_lock);
+
+	return fsalstat(ERR_FSAL_NO_ERROR, 0);
+}
+#else
 static fsal_status_t mem_readdir(struct fsal_obj_handle *dir_hdl,
 				 fsal_cookie_t *whence,
 				 void *dir_state,
@@ -1114,7 +1209,7 @@ static fsal_status_t mem_readdir(struct fsal_obj_handle *dir_hdl,
 
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
 }
-
+#endif
 /**
  * @brief Create a directory
  *
@@ -1616,7 +1711,7 @@ fsal_status_t mem_open2(struct fsal_obj_handle *obj_hdl,
 		my_fd = container_of(state, struct vn_fd, state);
 	}
 	myself = container_of(obj_hdl, struct mem_fsal_obj_handle, obj_handle);
-
+	S5LOG_DEBUG("open file:%s myslef:%p myself_name:%s state:%p", name, myself, myself->m_name, state);
 	if (setattrs)
 		LogAttrlist(COMPONENT_FSAL, NIV_FULL_DEBUG,
 			    "attrs_set ", attrs_set, false);
@@ -1676,6 +1771,7 @@ fsal_status_t mem_open2(struct fsal_obj_handle *obj_hdl,
 
 		if (openflags & FSAL_O_WRITE)
 			openflags |= FSAL_O_READ;
+		S5LOG_DEBUG("open myfd:%p myself fd:%p, myname:%s", my_fd, &myself->mh_file.fd, myself->m_name);
 		mem_open_my_fd(myself, my_fd, openflags);
 
 		if (truncated)
@@ -1773,7 +1869,7 @@ fsal_status_t mem_open2(struct fsal_obj_handle *obj_hdl,
 
 	if (openflags & FSAL_O_WRITE)
 		openflags |= FSAL_O_READ;
-	mem_open_my_fd(myself, my_fd, openflags);
+	mem_open_my_fd(hdl, my_fd, openflags);
 
 	*new_obj = &hdl->obj_handle;
 

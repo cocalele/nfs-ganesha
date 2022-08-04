@@ -105,8 +105,11 @@ struct mem_fsal_obj_handle {
 	union {
 		struct {
 			struct mem_fsal_obj_handle *parent;
+#ifdef VIVENAS_IGNORE
+#else
 			struct avltree avl_name;
 			struct avltree avl_index;
+#endif
 			uint32_t numkids;
 		} mh_dir;
 		struct {
@@ -139,9 +142,11 @@ struct mem_dirent {
 	struct mem_fsal_obj_handle *dir; /**< Dir containing dirent */
 	const char *d_name;		 /**< Name of dirent */
 	uint64_t d_index;		 /**< index in dir */
+#ifndef VIVENAS_IGNORE
 	struct avltree_node avl_n;	 /**< Entry in dir's avl_name tree */
 	struct avltree_node avl_i;	 /**< Entry in dir's avl_index tree */
 	struct glist_head dlist;	 /**< Entry in hdl's dirents list */
+#endif
 };
 
 static inline bool mem_unopenable_type(object_file_type_t type)
