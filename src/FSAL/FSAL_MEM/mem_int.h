@@ -105,12 +105,10 @@ struct mem_fsal_obj_handle {
 	union {
 		struct {
 			struct mem_fsal_obj_handle *parent;
-#ifdef VIVENAS_IGNORE
-#else
 			struct avltree avl_name;
 			struct avltree avl_index;
-#endif
 			uint32_t numkids;
+			pthread_mutex_t dir_lock;
 		} mh_dir;
 		struct {
 			struct fsal_share share;

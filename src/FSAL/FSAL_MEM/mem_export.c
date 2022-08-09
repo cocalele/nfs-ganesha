@@ -279,7 +279,7 @@ fsal_status_t mem_create_export(struct fsal_module *fsal_hdl,
 
 
 
-	vn_say_hello("Mount vivefs");
+	S5LOG_INFO("Mount vivefs from:%s", myself->db_path);
 	myself->mount_ctx = vn_mount(myself->db_path);
 	if (myself->mount_ctx == NULL) {
 		fsal_status = posix2fsal_status(EIO);

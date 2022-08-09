@@ -266,8 +266,18 @@ static void mem_insert_obj(struct mem_fsal_obj_handle *parent,
 	PTHREAD_RWLOCK_wrlock(&child->obj_handle.obj_lock);
 	glist_add_tail(&child->dirents, &dirent->dlist);
 	PTHREAD_RWLOCK_unlock(&child->obj_handle.obj_lock);
+
 	/* Link into parent */
-	PTHREAD_RWLOCK_wrlock(&parent->obj_handle.obj_lock);
+	//int lockrc = pthread_rwlock_trywrlock(&parent->obj_handle.obj_lock);
+	//if(lockrc == EDEADLK){
+	//	S5LOG_DEBUG("try_wrlock exit EDEADLK");
+	//	PTHREAD_RWLOCK_unlock(&parent->obj_handle.obj_lock); //release read lock and acquire write lock
+	//	PTHREAD_RWLOCK_wrlock(&parent->obj_handle.obj_lock);
+	//}
+	//else if (lockrc == EBUSY) {
+	//	PTHREAD_RWLOCK_wrlock(&parent->obj_handle.obj_lock);
+	//}//else , we have acquired lock
+	PTHREAD_MUTEX_lock(&parent->mh_dir.dir_lock);
 	/* Name tree */
 	avltree_insert(&dirent->avl_n, &parent->mh_dir.avl_name);
 	/* Index tree */
@@ -277,7 +287,12 @@ static void mem_insert_obj(struct mem_fsal_obj_handle *parent,
 	LogFullDebug(COMPONENT_FSAL, "%s numkids %"PRIu32, parent->m_name,
 		     numkids);
 
-	PTHREAD_RWLOCK_unlock(&parent->obj_handle.obj_lock);
+	//PTHREAD_RWLOCK_unlock(&parent->obj_handle.obj_lock);
+	//if(lockrc == EDEADLK){
+	//	PTHREAD_RWLOCK_rdlock(&parent->obj_handle.obj_lock);//acquire rd lock again
+	//}
+	PTHREAD_MUTEX_unlock(&parent->mh_dir.dir_lock);
+
 }
 
 /**
@@ -295,8 +310,9 @@ mem_dirent_lookup(struct mem_fsal_obj_handle *dir, const char *name)
 
 	memset(&key, 0, sizeof(key));
 	key.d_name = name;
-
+	PTHREAD_MUTEX_lock(&dir->mh_dir.dir_lock);
 	node = avltree_lookup(&key.avl_n, &dir->mh_dir.avl_name);
+	PTHREAD_MUTEX_unlock(&dir->mh_dir.dir_lock);
 	if (!node) {
 		/* it's not there */
 		return NULL;
@@ -403,8 +419,10 @@ static void mem_remove_dirent_locked(struct mem_fsal_obj_handle *parent,
 	struct mem_fsal_obj_handle *child;
 	uint32_t numkids;
 
+	PTHREAD_MUTEX_lock(&parent->mh_dir.dir_lock);
 	avltree_remove(&dirent->avl_n, &parent->mh_dir.avl_name);
 	avltree_remove(&dirent->avl_i, &parent->mh_dir.avl_index);
+	PTHREAD_MUTEX_unlock(&parent->mh_dir.dir_lock);
 
 	/* Take the child lock, to remove from the child.  This should not race
 	 * with @r mem_insert_obj since that takes the locks sequentially */
@@ -490,10 +508,13 @@ void mem_clean_all_dirents(struct mem_fsal_obj_handle *parent)
 #else
 	struct avltree_node *node;
 	struct mem_dirent *dirent;
+	pthread_mutex_lock(& parent->mh_dir.dir_lock);
 	while ((node = avltree_first(&parent->mh_dir.avl_name))) {
 		dirent = avltree_container_of(node, struct mem_dirent, avl_n);
 		mem_remove_dirent_locked(parent, dirent);
 	}
+	pthread_mutex_unlock(& parent->mh_dir.dir_lock);
+
 #endif
 }
 
@@ -749,6 +770,7 @@ _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 		hdl->attrs.numlinks = 2;
 		hdl->mh_dir.numkids = 2;
 		hdl->mh_dir.parent = parent;
+		PTHREAD_MUTEX_init(&hdl->mh_dir.dir_lock, NULL);
 		break;
 	default:
 		hdl->attrs.numlinks = 1;
@@ -1090,19 +1112,29 @@ static fsal_status_t mem_readdir(struct fsal_obj_handle* dir_hdl,
 
 
 	char entry_name[256];
-	struct ViveInode* inode;
+	struct ViveInode* inode, *next_inode;
 	int64_t i = 0;
 	/* Always run in index order */
-	for (inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name)); inode != NULL; i++) {
-		if (i < read_off)
-			continue;
+	for (; i < read_off; i++) {
+		inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name));
+		if(inode == NULL){
+			return fsalstat(ERR_FSAL_NO_ERROR, 0);
+		}
+	}
+	
+	inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name));
+	next_inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name));
+
+	for (; inode != NULL;
+		i++, inode = next_inode) {
+		next_inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name));
 		fsal_prepare_attrs(&attrs, attrmask);
 		inode2fsalattr(&attrs, inode);
 
 		S5LOG_DEBUG("readdir return:%s", entry_name);
 		struct mem_fsal_obj_handle* hdl = mem_alloc_handle(myself, entry_name, inode, posix2fsal_type(inode->i_mode),  myself->mfo_exp, &attrs);
 
-		cb_rc = cb(entry_name, &hdl->obj_handle, &attrs, dir_state, i);
+		cb_rc = cb(entry_name, &hdl->obj_handle, &attrs, dir_state, next_inode ? i : UINT64_MAX);
 
 		fsal_release_attrs(&attrs);
 
@@ -1117,7 +1149,6 @@ static fsal_status_t mem_readdir(struct fsal_obj_handle* dir_hdl,
 
 	if (*eof == true) {
 		S5LOG_DEBUG("release dir iterator:%p", it);
-
 		vn_release_iterator(myself->mfo_exp->mount_ctx, it);
 	}
 	op_ctx->fsal_private = NULL;
