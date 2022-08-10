@@ -683,7 +683,7 @@ _mem_alloc_handle(struct mem_fsal_obj_handle *parent,
 
 	/* Establish tree details for this directory */
 	hdl->m_name = gsh_strdup(name);
-	hdl->obj_handle.fileid = atomic_postinc_uint64_t(&mem_inode_number);
+	hdl->obj_handle.fileid = inode->i_no; //atomic_postinc_uint64_t(&mem_inode_number);
 	hdl->inode = inode->i_no;
 	hdl->vninode = inode;
 	hdl->datasize = MEM.inode_size;
