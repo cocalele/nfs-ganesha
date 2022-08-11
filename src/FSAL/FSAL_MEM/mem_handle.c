@@ -1108,11 +1108,10 @@ static fsal_status_t mem_readdir(struct fsal_obj_handle* dir_hdl,
 
 	struct vn_inode_iterator* it;
 	it = vn_begin_iterate_dir(myself->mfo_exp->mount_ctx, myself->vninode->i_no);
-	S5LOG_DEBUG("Create dir iterator:%p", it);
 
 
 	char entry_name[256];
-	struct ViveInode* inode, *next_inode;
+	struct ViveInode* inode;
 	int64_t i = 0;
 	/* Always run in index order */
 	for (; i < read_off; i++) {
@@ -1121,20 +1120,19 @@ static fsal_status_t mem_readdir(struct fsal_obj_handle* dir_hdl,
 			return fsalstat(ERR_FSAL_NO_ERROR, 0);
 		}
 	}
-	
-	inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name));
-	next_inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name));
 
-	for (; inode != NULL;
-		i++, inode = next_inode) {
-		next_inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name));
+
+	for (inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name)); 
+		 inode != NULL;
+		 i++, inode = vn_next_inode(myself->mfo_exp->mount_ctx, it, entry_name, sizeof(entry_name))) {
+		
 		fsal_prepare_attrs(&attrs, attrmask);
 		inode2fsalattr(&attrs, inode);
 
 		S5LOG_DEBUG("readdir return:%s", entry_name);
 		struct mem_fsal_obj_handle* hdl = mem_alloc_handle(myself, entry_name, inode, posix2fsal_type(inode->i_mode),  myself->mfo_exp, &attrs);
 
-		cb_rc = cb(entry_name, &hdl->obj_handle, &attrs, dir_state, next_inode ? i : UINT64_MAX);
+		cb_rc = cb(entry_name, &hdl->obj_handle, &attrs, dir_state, vn_iterator_has_next(it) ? i+1 : UINT64_MAX);
 
 		fsal_release_attrs(&attrs);
 
@@ -1147,10 +1145,7 @@ static fsal_status_t mem_readdir(struct fsal_obj_handle* dir_hdl,
 		}
 	}
 
-	if (*eof == true) {
-		S5LOG_DEBUG("release dir iterator:%p", it);
-		vn_release_iterator(myself->mfo_exp->mount_ctx, it);
-	}
+	vn_release_iterator(myself->mfo_exp->mount_ctx, it);
 	op_ctx->fsal_private = NULL;
 
 	PTHREAD_RWLOCK_unlock(&dir_hdl->obj_lock);
