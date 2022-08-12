@@ -1525,8 +1525,10 @@ static fsal_status_t mem_unlink(struct fsal_obj_handle *dir_hdl,
 	struct mem_fsal_obj_handle *parent, *myself;
 	fsal_status_t status = {0, 0};
 	uint32_t numkids;
+#ifdef VIVENAS
+#else
 	struct mem_dirent *dirent;
-
+#endif
 	parent = container_of(dir_hdl,
 			      struct mem_fsal_obj_handle,
 			      obj_handle);
@@ -1573,13 +1575,19 @@ static fsal_status_t mem_unlink(struct fsal_obj_handle *dir_hdl,
 	default:
 		break;
 	}
-
+#ifdef VIVENAS
+	int rc = vn_unlink(parent->mfo_exp->mount_ctx, parent->vninode->i_no, myself->m_name);
+	if (rc == 0)
+		status = fsalstat(ERR_FSAL_NO_ERROR, 0);
+	else
+		status = fsalstat(ERR_FSAL_IO, rc);
+#else
 	/* Remove the dirent from the parent*/
 	dirent = mem_dirent_lookup(parent, name);
 	if (dirent) {
 		mem_remove_dirent_locked(parent, dirent);
 	}
-
+#endif
 unlock:
 	PTHREAD_RWLOCK_unlock(&dir_hdl->obj_lock);
 
