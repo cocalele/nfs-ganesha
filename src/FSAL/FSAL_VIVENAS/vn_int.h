@@ -36,7 +36,7 @@
 #include "vivenas.h"
 #endif
 
-struct mem_fsal_obj_handle;
+struct fvn_fsal_obj_handle;
 
 enum async_types {
 	MEM_INLINE,
@@ -48,13 +48,13 @@ enum async_types {
 /**
  * MEM internal export
  */
-struct mem_fsal_export {
+struct fvn_fsal_export {
 	/** Export this wraps */
 	struct fsal_export export;
 	/** The path for this export */
 	char *export_path;
 	/** Root object for this export */
-	struct mem_fsal_obj_handle *root_handle;
+	struct fvn_fsal_obj_handle *root_handle;
 	/** Entry into list of exports */
 	struct glist_head export_entry;
 	/** Lock protecting mfe_objs */
@@ -72,12 +72,12 @@ struct mem_fsal_export {
 	struct ViveFsContext* mount_ctx;
 };
 
-fsal_status_t mem_lookup_path(struct fsal_export *exp_hdl,
+fsal_status_t fvn_lookup_path(struct fsal_export *exp_hdl,
 				const char *path,
 				struct fsal_obj_handle **handle,
 				struct fsal_attrlist *attrs_out);
 
-fsal_status_t mem_create_handle(struct fsal_export *exp_hdl,
+fsal_status_t fvn_create_handle(struct fsal_export *exp_hdl,
 				  struct gsh_buffdesc *hdl_desc,
 				  struct fsal_obj_handle **handle,
 				  struct fsal_attrlist *attrs_out);
@@ -96,7 +96,7 @@ struct vn_fd {
 	struct ViveFile* vf;
 };
 
-struct mem_fsal_obj_handle {
+struct fvn_fsal_obj_handle {
 	struct fsal_obj_handle obj_handle;
 	struct fsal_attrlist attrs;
 	uint64_t inode;
@@ -104,7 +104,7 @@ struct mem_fsal_obj_handle {
 	char handle[V4_FH_OPAQUE_SIZE];
 	union {
 		struct {
-			struct mem_fsal_obj_handle *parent;
+			struct fvn_fsal_obj_handle *parent;
 			struct avltree avl_name;
 			struct avltree avl_index;
 			uint32_t numkids;
@@ -124,7 +124,7 @@ struct mem_fsal_obj_handle {
 	};
 	struct glist_head dirents; /**< List of dirents pointing to obj */
 	struct glist_head mfo_exp_entry; /**< Link into mfs_objs */
-	struct mem_fsal_export *mfo_exp; /**< Export owning object */
+	struct fvn_fsal_export *mfo_exp; /**< Export owning object */
 	char *m_name;	/**< Base name of obj, for debugging */
 	uint32_t datasize;
 	bool is_export;
@@ -135,9 +135,9 @@ struct mem_fsal_obj_handle {
 /**
  * @brief Dirent for FSAL_MEM
  */
-struct mem_dirent {
-	struct mem_fsal_obj_handle *hdl; /**< Handle dirent points to */
-	struct mem_fsal_obj_handle *dir; /**< Dir containing dirent */
+struct fvn_dirent {
+	struct fvn_fsal_obj_handle *hdl; /**< Handle dirent points to */
+	struct fvn_fsal_obj_handle *dir; /**< Dir containing dirent */
 	const char *d_name;		 /**< Name of dirent */
 	uint64_t d_index;		 /**< index in dir */
 #ifndef VIVENAS_IGNORE
@@ -147,7 +147,7 @@ struct mem_dirent {
 #endif
 };
 
-static inline bool mem_unopenable_type(object_file_type_t type)
+static inline bool fvn_unopenable_type(object_file_type_t type)
 {
 	if ((type == SOCKET_FILE) || (type == CHARACTER_FILE)
 	    || (type == BLOCK_FILE)) {
@@ -157,17 +157,17 @@ static inline bool mem_unopenable_type(object_file_type_t type)
 	}
 }
 
-void mem_handle_ops_init(struct fsal_obj_ops *ops);
+void fvn_handle_ops_init(struct fsal_obj_ops *ops);
 
 /* Internal MEM method linkage to export object
 */
 
-fsal_status_t mem_create_export(struct fsal_module *fsal_hdl,
+fsal_status_t fvn_create_export(struct fsal_module *fsal_hdl,
 				void *parse_node,
 				struct config_error_type *err_type,
 				const struct fsal_up_vector *up_ops);
 
-fsal_status_t mem_update_export(struct fsal_module *fsal_hdl,
+fsal_status_t fvn_update_export(struct fsal_module *fsal_hdl,
 				void *parse_node,
 				struct config_error_type *err_type,
 				struct fsal_export *original,
@@ -175,18 +175,18 @@ fsal_status_t mem_update_export(struct fsal_module *fsal_hdl,
 
 const char *str_async_type(uint32_t async_type);
 
-#define mem_free_handle(h) _mem_free_handle(h, __func__, __LINE__)
+#define fvn_free_handle(h) _fvn_free_handle(h, __func__, __LINE__)
 /**
  * @brief Free a MEM handle
  *
  * @note mfe_exp_lock MUST be held for write
  * @param[in] hdl	Handle to free
  */
-static inline void _mem_free_handle(struct mem_fsal_obj_handle *hdl,
+static inline void _fvn_free_handle(struct fvn_fsal_obj_handle *hdl,
 				    const char *func, int line)
 {
 #ifdef USE_LTTNG
-	tracepoint(fsalmem, mem_free, func, line, hdl, hdl->m_name);
+	tracepoint(fsalmem, fvn_free, func, line, hdl, hdl->m_name);
 #endif
 
 	glist_del(&hdl->mfo_exp_entry);
@@ -200,19 +200,19 @@ static inline void _mem_free_handle(struct mem_fsal_obj_handle *hdl,
 	gsh_free(hdl);
 }
 
-void mem_clean_export(struct mem_fsal_obj_handle *root);
-void mem_clean_all_dirents(struct mem_fsal_obj_handle *parent);
+void fvn_clean_export(struct fvn_fsal_obj_handle *root);
+void fvn_clean_all_dirents(struct fvn_fsal_obj_handle *parent);
 
 /**
  * @brief FSAL Module wrapper for MEM
  */
-struct mem_fsal_module {
+struct fvn_fsal_module {
 	/** Module we're wrapping */
 	struct fsal_module fsal;
 	/** fsal_obj_handle ops vector */
 	struct fsal_obj_ops handle_ops;
 	/** List of MEM exports. TODO Locking when we care */
-	struct glist_head mem_exports;
+	struct glist_head fvn_exports;
 	/** Config - size of data in inode */
 	uint32_t inode_size;
 	/** Config - Interval for UP call thread */
@@ -226,13 +226,13 @@ struct mem_fsal_module {
 };
 
 /* ASYNC testing */
-extern struct fridgethr *mem_async_fridge;
+extern struct fridgethr *fvn_async_fridge;
 
 /* UP testing */
-fsal_status_t mem_up_pkginit(void);
-fsal_status_t mem_up_pkgshutdown(void);
+fsal_status_t fvn_up_pkginit(void);
+fsal_status_t fvn_up_pkgshutdown(void);
 
-extern struct mem_fsal_module MEM;
+extern struct fvn_fsal_module MEM;
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
 #define KGRN  "\x1B[32m"

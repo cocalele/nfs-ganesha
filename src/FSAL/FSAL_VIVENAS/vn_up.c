@@ -32,7 +32,7 @@
 #include "fsal_convert.h"
 #include "vn_int.h"
 
-static struct fridgethr *mem_up_fridge;
+static struct fridgethr *fvn_up_fridge;
 
 /**
  * @brief Invalidate an object
@@ -45,7 +45,7 @@ static struct fridgethr *mem_up_fridge;
  * @param[in] hdl	Handle to invalidate
  */
 static void
-mem_invalidate(struct mem_fsal_export *mfe, struct mem_fsal_obj_handle *hdl)
+fvn_invalidate(struct fvn_fsal_export *mfe, struct fvn_fsal_obj_handle *hdl)
 {
 	const struct fsal_up_vector *up_ops = mfe->export.up_ops;
 	fsal_status_t status;
@@ -73,8 +73,8 @@ mem_invalidate(struct mem_fsal_export *mfe, struct mem_fsal_obj_handle *hdl)
  * @param[in] hdl	Handle to invalidate
  */
 static void
-mem_invalidate_close(struct mem_fsal_export *mfe,
-		     struct mem_fsal_obj_handle *hdl)
+fvn_invalidate_close(struct fvn_fsal_export *mfe,
+		     struct fvn_fsal_obj_handle *hdl)
 {
 	const struct fsal_up_vector *up_ops = mfe->export.up_ops;
 	fsal_status_t status;
@@ -102,7 +102,7 @@ mem_invalidate_close(struct mem_fsal_export *mfe,
  * @param[in] hdl	Handle to update
  */
 static void
-mem_update(struct mem_fsal_export *mfe, struct mem_fsal_obj_handle *hdl)
+fvn_update(struct fvn_fsal_export *mfe, struct fvn_fsal_obj_handle *hdl)
 {
 	const struct fsal_up_vector *up_ops = mfe->export.up_ops;
 	fsal_status_t status;
@@ -137,10 +137,10 @@ mem_update(struct mem_fsal_export *mfe, struct mem_fsal_obj_handle *hdl)
  * @param[in] mfe	Export to select from
  * @return Obj on success, NULL on failure
  */
-struct mem_fsal_obj_handle *
-mem_rand_obj(struct mem_fsal_export *mfe)
+struct fvn_fsal_obj_handle *
+fvn_rand_obj(struct fvn_fsal_export *mfe)
 {
-	struct mem_fsal_obj_handle *res = NULL;
+	struct fvn_fsal_obj_handle *res = NULL;
 	struct glist_head *glist, *glistn;
 	uint32_t n = 2;
 
@@ -151,14 +151,14 @@ mem_rand_obj(struct mem_fsal_export *mfe)
 	glist_for_each_safe(glist, glistn, &mfe->mfe_objs) {
 		if (res == NULL) {
 			/* Grab first entry */
-			res = glist_entry(glist, struct mem_fsal_obj_handle,
+			res = glist_entry(glist, struct fvn_fsal_obj_handle,
 					  mfo_exp_entry);
 			continue;
 		}
 
 		if (rand() % n == 0) {
 			/* Replace with current */
-			res = glist_entry(glist, struct mem_fsal_obj_handle,
+			res = glist_entry(glist, struct fvn_fsal_obj_handle,
 					  mfo_exp_entry);
 			break;
 		}
@@ -180,30 +180,30 @@ mem_rand_obj(struct mem_fsal_export *mfe)
  * @return Return description
  */
 static void
-mem_up_run(struct fridgethr_context *ctx)
+fvn_up_run(struct fridgethr_context *ctx)
 {
 	struct glist_head *glist, *glistn;
 
-	glist_for_each_safe(glist, glistn, &MEM.mem_exports) {
-		struct mem_fsal_export *mfe;
-		struct mem_fsal_obj_handle *hdl;
+	glist_for_each_safe(glist, glistn, &MEM.fvn_exports) {
+		struct fvn_fsal_export *mfe;
+		struct fvn_fsal_obj_handle *hdl;
 
-		mfe = glist_entry(glist, struct mem_fsal_export, export_entry);
+		mfe = glist_entry(glist, struct fvn_fsal_export, export_entry);
 
 		/* Update a handle */
-		hdl = mem_rand_obj(mfe);
+		hdl = fvn_rand_obj(mfe);
 		if (hdl)
-			mem_update(mfe, hdl);
+			fvn_update(mfe, hdl);
 
 		/* Invalidate a handle */
-		hdl = mem_rand_obj(mfe);
+		hdl = fvn_rand_obj(mfe);
 		if (hdl)
-			mem_invalidate(mfe, hdl);
+			fvn_invalidate(mfe, hdl);
 
 		/* Invalidate and close a handle */
-		hdl = mem_rand_obj(mfe);
+		hdl = fvn_rand_obj(mfe);
 		if (hdl)
-			mem_invalidate_close(mfe, hdl);
+			fvn_invalidate_close(mfe, hdl);
 	}
 }
 
@@ -211,7 +211,7 @@ mem_up_run(struct fridgethr_context *ctx)
  * Initialize subsystem
  */
 fsal_status_t
-mem_up_pkginit(void)
+fvn_up_pkginit(void)
 {
 	/* Return code from system calls */
 	int code = 0;
@@ -222,7 +222,7 @@ mem_up_pkginit(void)
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
 
-	if (mem_up_fridge) {
+	if (fvn_up_fridge) {
 		/* Already initialized */
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
@@ -234,7 +234,7 @@ mem_up_pkginit(void)
 	frp.flavor = fridgethr_flavor_looper;
 
 	/* spawn MEM_UP background thread */
-	code = fridgethr_init(&mem_up_fridge, "MEM_UP_fridge", &frp);
+	code = fridgethr_init(&fvn_up_fridge, "MEM_UP_fridge", &frp);
 	if (code != 0) {
 		LogMajor(COMPONENT_FSAL_UP,
 			 "Unable to initialize MEM_UP fridge, error code %d.",
@@ -242,7 +242,7 @@ mem_up_pkginit(void)
 		return posix2fsal_status(code);
 	}
 
-	code = fridgethr_submit(mem_up_fridge, mem_up_run, NULL);
+	code = fridgethr_submit(fvn_up_fridge, fvn_up_run, NULL);
 	if (code != 0) {
 		LogMajor(COMPONENT_FSAL_UP,
 			 "Unable to start MEM_UP thread, error code %d.", code);
@@ -258,27 +258,27 @@ mem_up_pkginit(void)
  * @return FSAL status
  */
 fsal_status_t
-mem_up_pkgshutdown(void)
+fvn_up_pkgshutdown(void)
 {
-	if (!mem_up_fridge) {
+	if (!fvn_up_fridge) {
 		/* Interval wasn't configured */
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
 
-	int rc = fridgethr_sync_command(mem_up_fridge,
+	int rc = fridgethr_sync_command(fvn_up_fridge,
 					fridgethr_comm_stop,
 					120);
 
 	if (rc == ETIMEDOUT) {
 		LogMajor(COMPONENT_FSAL_UP,
 			 "Shutdown timed out, cancelling threads.");
-		fridgethr_cancel(mem_up_fridge);
+		fridgethr_cancel(fvn_up_fridge);
 	} else if (rc != 0) {
 		LogMajor(COMPONENT_FSAL_UP,
 			 "Failed shutting down MEM_UP thread: %d", rc);
 	}
 
-	fridgethr_destroy(mem_up_fridge);
-	mem_up_fridge = NULL;
+	fridgethr_destroy(fvn_up_fridge);
+	fvn_up_fridge = NULL;
 	return fsalstat(posix2fsal_error(rc), rc);
 }

@@ -51,7 +51,7 @@ static const char memname[] = "VIVENAS";
 void 	__PfAof_init();
 
 /* my module private storage */
-struct mem_fsal_module MEM = {
+struct fvn_fsal_module MEM = {
 	.fsal = {
 		.fs_info = {
 			.maxfilesize = INT64_MAX,
@@ -83,34 +83,34 @@ struct mem_fsal_module MEM = {
 	}
 };
 
-static struct config_item mem_items[] = {
+static struct config_item fvn_items[] = {
 	CONF_ITEM_UI32("Inode_Size", 0, 0x200000, 0,
-		       mem_fsal_module, inode_size),
+		       fvn_fsal_module, inode_size),
 	CONF_ITEM_UI32("Up_Test_Interval", 0, UINT32_MAX, 0,
-		       mem_fsal_module, up_interval),
+		       fvn_fsal_module, up_interval),
 	CONF_ITEM_UI32("Async_Threads", 0, 100, 0,
-		       mem_fsal_module, async_threads),
+		       fvn_fsal_module, async_threads),
 	CONF_ITEM_BOOL("Whence_is_name", false,
-		       mem_fsal_module, whence_is_name),
+		       fvn_fsal_module, whence_is_name),
 	CONFIG_EOL
 };
 
-static struct config_block mem_block = {
+static struct config_block fvn_block = {
 	.dbus_interface_name = "org.ganesha.nfsd.config.fsal.vivenas",
 	.blk_desc.name = "VIVENAS",
 	.blk_desc.type = CONFIG_BLOCK,
 	.blk_desc.u.blk.init = noop_conf_init,
-	.blk_desc.u.blk.params = mem_items,
+	.blk_desc.u.blk.params = fvn_items,
 	.blk_desc.u.blk.commit = noop_conf_commit
 };
 
-struct fridgethr *mem_async_fridge;
+struct fridgethr *fvn_async_fridge;
 
 /**
  * Initialize subsystem
  */
 static fsal_status_t
-mem_async_pkginit(void)
+fvn_async_pkginit(void)
 {
 	/* Return code from system calls */
 	int code = 0;
@@ -121,7 +121,7 @@ mem_async_pkginit(void)
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
 
-	if (mem_async_fridge) {
+	if (fvn_async_fridge) {
 		/* Already initialized */
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
@@ -132,7 +132,7 @@ mem_async_pkginit(void)
 	frp.flavor = fridgethr_flavor_worker;
 
 	/* spawn MEM_ASYNC background thread */
-	code = fridgethr_init(&mem_async_fridge, "MEM_ASYNC_fridge", &frp);
+	code = fridgethr_init(&fvn_async_fridge, "MEM_ASYNC_fridge", &frp);
 	if (code != 0) {
 		LogMajor(COMPONENT_FSAL,
 			 "Unable to initialize MEM_ASYNC fridge, error code %d.",
@@ -153,28 +153,28 @@ mem_async_pkginit(void)
  * @return FSAL status
  */
 static fsal_status_t
-mem_async_pkgshutdown(void)
+fvn_async_pkgshutdown(void)
 {
-	if (!mem_async_fridge) {
+	if (!fvn_async_fridge) {
 		/* Async wasn't configured */
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
 
-	int rc = fridgethr_sync_command(mem_async_fridge,
+	int rc = fridgethr_sync_command(fvn_async_fridge,
 					fridgethr_comm_stop,
 					120);
 
 	if (rc == ETIMEDOUT) {
 		LogMajor(COMPONENT_FSAL,
 			 "Shutdown timed out, cancelling threads.");
-		fridgethr_cancel(mem_async_fridge);
+		fridgethr_cancel(fvn_async_fridge);
 	} else if (rc != 0) {
 		LogMajor(COMPONENT_FSAL,
 			 "Failed shutting down MEM_ASYNC threads: %d", rc);
 	}
 
-	fridgethr_destroy(mem_async_fridge);
-	mem_async_fridge = NULL;
+	fridgethr_destroy(fvn_async_fridge);
+	fvn_async_fridge = NULL;
 	return posix2fsal_status(rc);
 }
 
@@ -182,33 +182,33 @@ mem_async_pkgshutdown(void)
  */
 
 /* Initialize mem fs info */
-static fsal_status_t mem_init_config(struct fsal_module *fsal_hdl,
+static fsal_status_t fvn_init_config(struct fsal_module *fsal_hdl,
 				 config_file_t config_struct,
 				 struct config_error_type *err_type)
 {
-	struct mem_fsal_module *mem_me =
-	    container_of(fsal_hdl, struct mem_fsal_module, fsal);
+	struct fvn_fsal_module *fvn_me =
+	    container_of(fsal_hdl, struct fvn_fsal_module, fsal);
 	fsal_status_t status = {0, 0};
 
 	LogDebug(COMPONENT_FSAL, "MEM module setup.");
 	LogFullDebug(COMPONENT_FSAL,
 				 "Supported attributes default = 0x%" PRIx64,
-				 mem_me->fsal.fs_info.supported_attrs);
+				 fvn_me->fsal.fs_info.supported_attrs);
 
 	/* if we have fsal specific params, do them here
 	 * fsal_hdl->name is used to find the block containing the
 	 * params.
 	 */
 	(void) load_config_from_parse(config_struct,
-				      &mem_block,
-				      mem_me,
+				      &fvn_block,
+				      fvn_me,
 				      true,
 				      err_type);
 	if (!config_error_is_harmless(err_type))
 		return fsalstat(ERR_FSAL_INVAL, 0);
 
 	/* Initialize UP calls */
-	status = mem_up_pkginit();
+	status = fvn_up_pkginit();
 	if (FSAL_IS_ERROR(status)) {
 		LogMajor(COMPONENT_FSAL,
 			 "Failed to initialize FSAL_MEM UP package %s",
@@ -217,7 +217,7 @@ static fsal_status_t mem_init_config(struct fsal_module *fsal_hdl,
 	}
 
 	/* Initialize ASYNC call back threads */
-	status = mem_async_pkginit();
+	status = fvn_async_pkginit();
 	if (FSAL_IS_ERROR(status)) {
 		LogMajor(COMPONENT_FSAL,
 			 "Failed to initialize FSAL_MEM ASYNC package %s",
@@ -226,15 +226,15 @@ static fsal_status_t mem_init_config(struct fsal_module *fsal_hdl,
 	}
 
 	/* Set whence_is_name in fsinfo */
-	mem_me->fsal.fs_info.whence_is_name = mem_me->whence_is_name;
+	fvn_me->fsal.fs_info.whence_is_name = fvn_me->whence_is_name;
 
-	display_fsinfo(&mem_me->fsal);
+	display_fsinfo(&fvn_me->fsal);
 	LogFullDebug(COMPONENT_FSAL,
 		     "Supported attributes constant = 0x%" PRIx64,
 		     (uint64_t) MEM_SUPPORTED_ATTRIBUTES);
 	LogDebug(COMPONENT_FSAL,
 		 "FSAL INIT: Supported attributes mask = 0x%" PRIx64,
-		 mem_me->fsal.fs_info.supported_attrs);
+		 fvn_me->fsal.fs_info.supported_attrs);
 
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
 }
@@ -266,14 +266,14 @@ MODULE_INIT void init(void)
 		LogCrit(COMPONENT_FSAL,
 			"MEM module failed to register.");
 	}
-	myself->m_ops.create_export = mem_create_export;
-	myself->m_ops.update_export = mem_update_export;
-	myself->m_ops.init_config = mem_init_config;
-	glist_init(&MEM.mem_exports);
+	myself->m_ops.create_export = fvn_create_export;
+	myself->m_ops.update_export = fvn_update_export;
+	myself->m_ops.init_config = fvn_init_config;
+	glist_init(&MEM.fvn_exports);
 	MEM.next_inode = 0xc0ffee;
 
 	/* Initialize the fsal_obj_handle ops for FSAL MEM */
-	mem_handle_ops_init(&MEM.handle_ops);
+	fvn_handle_ops_init(&MEM.handle_ops);
 }
 
 MODULE_FINI void finish(void)
@@ -284,10 +284,10 @@ MODULE_FINI void finish(void)
 		 "MEM module finishing.");
 
 	/* Shutdown UP calls */
-	mem_up_pkgshutdown();
+	fvn_up_pkgshutdown();
 
 	/* Shutdown ASYNC threads */
-	mem_async_pkgshutdown();
+	fvn_async_pkgshutdown();
 
 	retval = unregister_fsal(&MEM.fsal);
 	if (retval != 0) {

@@ -57,14 +57,14 @@
 /* export object methods
  */
 
-static void mem_release_export(struct fsal_export *exp_hdl)
+static void fvn_release_export(struct fsal_export *exp_hdl)
 {
-	struct mem_fsal_export *myself;
+	struct fvn_fsal_export *myself;
 
-	myself = container_of(exp_hdl, struct mem_fsal_export, export);
+	myself = container_of(exp_hdl, struct fvn_fsal_export, export);
 
 	if (myself->root_handle != NULL) {
-		mem_clean_export(myself->root_handle);
+		fvn_clean_export(myself->root_handle);
 
 		fsal_obj_handle_fini(&myself->root_handle->obj_handle);
 
@@ -73,7 +73,7 @@ static void mem_release_export(struct fsal_export *exp_hdl)
 			 myself->root_handle, myself->root_handle->m_name);
 
 		PTHREAD_RWLOCK_wrlock(&myself->mfe_exp_lock);
-		mem_free_handle(myself->root_handle);
+		fvn_free_handle(myself->root_handle);
 		PTHREAD_RWLOCK_unlock(&myself->mfe_exp_lock);
 
 		myself->root_handle = NULL;
@@ -88,7 +88,7 @@ static void mem_release_export(struct fsal_export *exp_hdl)
 	gsh_free(myself);
 }
 
-static fsal_status_t mem_get_dynamic_info(struct fsal_export *exp_hdl,
+static fsal_status_t fvn_get_dynamic_info(struct fsal_export *exp_hdl,
 					  struct fsal_obj_handle *obj_hdl,
 					  fsal_dynamicfsinfo_t *infop)
 {
@@ -111,7 +111,7 @@ static fsal_status_t mem_get_dynamic_info(struct fsal_export *exp_hdl,
  * is the option to also adjust the start pointer.
  */
 
-static fsal_status_t mem_wire_to_host(struct fsal_export *exp_hdl,
+static fsal_status_t fvn_wire_to_host(struct fsal_export *exp_hdl,
 				      fsal_digesttype_t in_type,
 				      struct gsh_buffdesc *fh_desc,
 				      int flags)
@@ -157,7 +157,7 @@ static fsal_status_t mem_wire_to_host(struct fsal_export *exp_hdl,
  * @returns a state structure.
  */
 
-static struct state_t *mem_alloc_state(struct fsal_export *exp_hdl,
+static struct state_t *fvn_alloc_state(struct fsal_export *exp_hdl,
 				       enum state_type state_type,
 				       struct state_t *related_state)
 {
@@ -169,25 +169,25 @@ static struct state_t *mem_alloc_state(struct fsal_export *exp_hdl,
 		exp_hdl, state_type, related_state);
 
 #ifdef USE_LTTNG
-	tracepoint(fsalmem, mem_alloc_state, __func__, __LINE__, state);
+	tracepoint(fsalmem, fvn_alloc_state, __func__, __LINE__, state);
 #endif
 	S5LOG_DEBUG("alloc state:%p", state);
 	return state;
 
 }
 
-/* mem_export_ops_init
+/* fvn_export_ops_init
  * overwrite vector entries with the methods that we support
  */
 
-void mem_export_ops_init(struct export_ops *ops)
+void fvn_export_ops_init(struct export_ops *ops)
 {
-	ops->release = mem_release_export;
-	ops->lookup_path = mem_lookup_path;
-	ops->wire_to_host = mem_wire_to_host;
-	ops->create_handle = mem_create_handle;
-	ops->get_fs_dynamic_info = mem_get_dynamic_info;
-	ops->alloc_state = mem_alloc_state;
+	ops->release = fvn_release_export;
+	ops->lookup_path = fvn_lookup_path;
+	ops->wire_to_host = fvn_wire_to_host;
+	ops->create_handle = fvn_create_handle;
+	ops->get_fs_dynamic_info = fvn_get_dynamic_info;
+	ops->alloc_state = fvn_alloc_state;
 }
 
 const char *str_async_type(uint32_t async_type)
@@ -214,25 +214,25 @@ static struct config_item_list async_types_conf[] = {
 	CONFIG_LIST_EOL
 };
 
-static struct config_item mem_export_params[] = {
+static struct config_item fvn_export_params[] = {
 	CONF_ITEM_NOOP("name"),
 	CONF_ITEM_UI32("Async_Delay", 0, 1000, 0,
-		       mem_fsal_export, async_delay),
+		       fvn_fsal_export, async_delay),
 	CONF_ITEM_TOKEN("Async_Type", MEM_INLINE, async_types_conf,
-			mem_fsal_export, async_type),
+			fvn_fsal_export, async_type),
 	CONF_ITEM_UI32("Async_Stall_Delay", 0, 1000, 0,
-		       mem_fsal_export, async_stall_delay),
-	CONF_ITEM_STR((char*)"db_path", 0, 256, NULL, mem_fsal_export, db_path),
+		       fvn_fsal_export, async_stall_delay),
+	CONF_ITEM_STR((char*)"db_path", 0, 256, NULL, fvn_fsal_export, db_path),
 
 	CONFIG_EOL
 };
 
-static struct config_block mem_export_param_block = {
+static struct config_block fvn_export_param_block = {
 	.dbus_interface_name = "org.ganesha.nfsd.config.fsal.mem-export%d",
 	.blk_desc.name = "FSAL",
 	.blk_desc.type = CONFIG_BLOCK,
 	.blk_desc.u.blk.init = noop_conf_init,
-	.blk_desc.u.blk.params = mem_export_params,
+	.blk_desc.u.blk.params = fvn_export_params,
 	.blk_desc.u.blk.commit = noop_conf_commit
 };
 
@@ -243,17 +243,17 @@ static struct config_block mem_export_param_block = {
  * returns the export with one reference taken.
  */
 
-fsal_status_t mem_create_export(struct fsal_module *fsal_hdl,
+fsal_status_t fvn_create_export(struct fsal_module *fsal_hdl,
 				void *parse_node,
 				struct config_error_type *err_type,
 				const struct fsal_up_vector *up_ops)
 {
-	struct mem_fsal_export *myself;
+	struct fvn_fsal_export *myself;
 	int retval = 0;
 	pthread_rwlockattr_t attrs;
 	fsal_status_t fsal_status = {0, 0};
 
-	myself = gsh_calloc(1, sizeof(struct mem_fsal_export));
+	myself = gsh_calloc(1, sizeof(struct fvn_fsal_export));
 
 	glist_init(&myself->mfe_objs);
 	pthread_rwlockattr_init(&attrs);
@@ -264,10 +264,10 @@ fsal_status_t mem_create_export(struct fsal_module *fsal_hdl,
 	PTHREAD_RWLOCK_init(&myself->mfe_exp_lock, &attrs);
 	pthread_rwlockattr_destroy(&attrs);
 	fsal_export_init(&myself->export);
-	mem_export_ops_init(&myself->export.exp_ops);
+	fvn_export_ops_init(&myself->export.exp_ops);
 
 	retval = load_config_from_node(parse_node,
-				       &mem_export_param_block,
+				       &fvn_export_param_block,
 				       myself,
 				       true,
 				       err_type);
@@ -311,7 +311,7 @@ fsal_status_t mem_create_export(struct fsal_module *fsal_hdl,
 	op_ctx->fsal_export = &myself->export;
 
 	/* Insert into exports list */
-	glist_add_tail(&MEM.mem_exports, &myself->export_entry);
+	glist_add_tail(&MEM.fvn_exports, &myself->export_entry);
 
 	LogDebug(COMPONENT_FSAL,
 		 "Created exp %p - %s",
@@ -351,16 +351,16 @@ err_free:
  * @return FSAL status.
  */
 
-fsal_status_t mem_update_export(struct fsal_module *fsal_hdl,
+fsal_status_t fvn_update_export(struct fsal_module *fsal_hdl,
 				void *parse_node,
 				struct config_error_type *err_type,
 				struct fsal_export *original,
 				struct fsal_module *updated_super)
 {
-	struct mem_fsal_export myself;
+	struct fvn_fsal_export myself;
 	int retval = 0;
-	struct mem_fsal_export *orig =
-		container_of(original, struct mem_fsal_export, export);
+	struct fvn_fsal_export *orig =
+		container_of(original, struct fvn_fsal_export, export);
 	fsal_status_t status;
 
 	/* Check for changes in stacking by calling default update_export. */
@@ -373,7 +373,7 @@ fsal_status_t mem_update_export(struct fsal_module *fsal_hdl,
 	memset(&myself, 0, sizeof(myself));
 
 	retval = load_config_from_node(parse_node,
-				       &mem_export_param_block,
+				       &fvn_export_param_block,
 				       &myself,
 				       true,
 				       err_type);
