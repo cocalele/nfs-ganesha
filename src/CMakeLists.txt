@@ -291,6 +291,7 @@ goption(USE_FSAL_GLUSTER "build GLUSTER FSAL shared library" ON)
 goption(USE_FSAL_NULL "build NULL FSAL shared library" ON)
 goption(USE_FSAL_RGW "build RGW FSAL shared library" ON)
 goption(USE_FSAL_MEM "build Memory FSAL shared library" ON)
+goption(USE_FSAL_VIVENAS "build ViveNAS FSAL shared library" ON)
 
 # Internal capability required by some FSALs
 option(GSH_CAN_HOST_LOCAL_FS "Ganesha supports hosting local filesystems" ON)
