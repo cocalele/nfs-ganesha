@@ -960,7 +960,7 @@ static fsal_status_t fvn_create_obj(struct fvn_fsal_obj_handle *parent,
 		return status;
 	}
 	mode_t m = fsal2posix_filetype(type);
-#if 1 //
+#if 0 //
 	if (type == DIRECTORY)
 		m |= 00777;
 	else if(type == REGULAR_FILE)
@@ -1448,7 +1448,7 @@ fsal_status_t fvn_setattr2(struct fsal_obj_handle *obj_hdl,
 	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_MODE))
 		attrs_set->mode &=
 		    ~op_ctx->fsal_export->exp_ops.fs_umask(op_ctx->fsal_export);
-
+	S5LOG_DEBUG("fvn_setattr2 on file:%ld_%s", myself->inode, myself->m_name);
 	/* Test if size is being set, make sure file is regular and if so,
 	 * require a read/write file descriptor.
 	 */
