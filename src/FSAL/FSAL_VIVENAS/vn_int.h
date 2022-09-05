@@ -27,14 +27,13 @@
 /* MEM methods for handles
 */
 #define VIVENAS 1
+#define VIVENAS_IGNORE_AVLTREE
 #include "avltree.h"
 #include "gsh_list.h"
 #ifdef USE_LTTNG
 #include "gsh_lttng/fsal_mem.h"
 #endif
-#ifdef VIVENAS
 #include "vivenas.h"
-#endif
 
 struct fvn_fsal_obj_handle;
 
@@ -140,11 +139,11 @@ struct fvn_dirent {
 	struct fvn_fsal_obj_handle *dir; /**< Dir containing dirent */
 	const char *d_name;		 /**< Name of dirent */
 	uint64_t d_index;		 /**< index in dir */
-#ifndef VIVENAS_IGNORE
+#ifndef VIVENAS_IGNORE_AVLTREE
 	struct avltree_node avl_n;	 /**< Entry in dir's avl_name tree */
 	struct avltree_node avl_i;	 /**< Entry in dir's avl_index tree */
-	struct glist_head dlist;	 /**< Entry in hdl's dirents list */
 #endif
+	struct glist_head dlist;	 /**< Entry in hdl's dirents list */
 };
 
 static inline bool fvn_unopenable_type(object_file_type_t type)

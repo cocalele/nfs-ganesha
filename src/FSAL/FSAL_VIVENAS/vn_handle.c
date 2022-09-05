@@ -53,7 +53,7 @@ uint64_t fvn_inode_number = 1;
 
 /* helpers
  */
-
+#ifndef VIVENAS_IGNORE_AVLTREE
 static inline int
 fvn_n_cmpf(const struct avltree_node *lhs,
 		const struct avltree_node *rhs)
@@ -83,6 +83,7 @@ fvn_i_cmpf(const struct avltree_node *lhs,
 
 	return 1;
 }
+#endif
 
 /**
  * @brief Clean up and free an object handle
@@ -252,8 +253,9 @@ static void fvn_insert_obj(struct fvn_fsal_obj_handle *parent,
 			   const char *name)
 {
 	struct fvn_dirent *dirent;
+#ifndef VIVENAS_IGNORE_AVLTREE
 	uint32_t numkids;
-
+#endif
 	dirent = gsh_calloc(1, sizeof(*dirent));
 	dirent->hdl = child;
 	fvn_int_get_ref(child);
@@ -267,16 +269,8 @@ static void fvn_insert_obj(struct fvn_fsal_obj_handle *parent,
 	glist_add_tail(&child->dirents, &dirent->dlist);
 	PTHREAD_RWLOCK_unlock(&child->obj_handle.obj_lock);
 
+#ifndef VIVENAS_IGNORE_AVLTREE
 	/* Link into parent */
-	//int lockrc = pthread_rwlock_trywrlock(&parent->obj_handle.obj_lock);
-	//if(lockrc == EDEADLK){
-	//	S5LOG_DEBUG("try_wrlock exit EDEADLK");
-	//	PTHREAD_RWLOCK_unlock(&parent->obj_handle.obj_lock); //release read lock and acquire write lock
-	//	PTHREAD_RWLOCK_wrlock(&parent->obj_handle.obj_lock);
-	//}
-	//else if (lockrc == EBUSY) {
-	//	PTHREAD_RWLOCK_wrlock(&parent->obj_handle.obj_lock);
-	//}//else , we have acquired lock
 	PTHREAD_MUTEX_lock(&parent->mh_dir.dir_lock);
 	/* Name tree */
 	avltree_insert(&dirent->avl_n, &parent->mh_dir.avl_name);
@@ -287,12 +281,8 @@ static void fvn_insert_obj(struct fvn_fsal_obj_handle *parent,
 	LogFullDebug(COMPONENT_FSAL, "%s numkids %"PRIu32, parent->m_name,
 		     numkids);
 
-	//PTHREAD_RWLOCK_unlock(&parent->obj_handle.obj_lock);
-	//if(lockrc == EDEADLK){
-	//	PTHREAD_RWLOCK_rdlock(&parent->obj_handle.obj_lock);//acquire rd lock again
-	//}
 	PTHREAD_MUTEX_unlock(&parent->mh_dir.dir_lock);
-
+#endif
 }
 
 /**
@@ -302,6 +292,7 @@ static void fvn_insert_obj(struct fvn_fsal_obj_handle *parent,
  * @param[in] name	Name to look up
  * @return Dirent on success, NULL on failure
  */
+#ifndef VIVENAS_IGNORE_AVLTREE
 struct fvn_dirent *
 fvn_dirent_lookup(struct fvn_fsal_obj_handle *dir, const char *name)
 {
@@ -317,9 +308,9 @@ fvn_dirent_lookup(struct fvn_fsal_obj_handle *dir, const char *name)
 		/* it's not there */
 		return NULL;
 	}
-
 	return avltree_container_of(node, struct fvn_dirent, avl_n);
 }
+#endif
 
 /**
  * @brief Get the next dirent in a directory
@@ -397,13 +388,14 @@ fvn_dirent_lookup(struct fvn_fsal_obj_handle *dir, const char *name)
  *
  * @param[in] obj	FSAL obj which was modified
  */
+#ifndef VIVENAS_IGNORE_AVLTREE
 static void fvn_update_change_locked(struct fvn_fsal_obj_handle *obj)
 {
 	now(&obj->attrs.mtime);
 	obj->attrs.ctime = obj->attrs.mtime;
 	obj->attrs.change = timespec_to_nsecs(&obj->attrs.mtime);
 }
-
+#endif
 /**
  * @brief Remove an obj from it's parent's tree
  *
@@ -413,17 +405,19 @@ static void fvn_update_change_locked(struct fvn_fsal_obj_handle *obj)
  * @param[in] dirent	Dirent to remove
  * @param[in] release	If true and no more dirents, release child
  */
+#ifndef VIVENAS_IGNORE_AVLTREE
+
 static void fvn_remove_dirent_locked(struct fvn_fsal_obj_handle *parent,
 				     struct fvn_dirent *dirent)
 {
 	struct fvn_fsal_obj_handle *child;
 	uint32_t numkids;
-
+#ifndef VIVENAS_IGNORE_AVLTREE
 	PTHREAD_MUTEX_lock(&parent->mh_dir.dir_lock);
 	avltree_remove(&dirent->avl_n, &parent->mh_dir.avl_name);
 	avltree_remove(&dirent->avl_i, &parent->mh_dir.avl_index);
 	PTHREAD_MUTEX_unlock(&parent->mh_dir.dir_lock);
-
+#endif
 	/* Take the child lock, to remove from the child.  This should not race
 	 * with @r fvn_insert_obj since that takes the locks sequentially */
 	child = dirent->hdl;
@@ -443,7 +437,7 @@ static void fvn_remove_dirent_locked(struct fvn_fsal_obj_handle *parent,
 
 	fvn_update_change_locked(parent);
 }
-
+#endif
 /**
  * @brief Remove a dirent from it's parent's tree
  *
@@ -453,6 +447,7 @@ static void fvn_remove_dirent_locked(struct fvn_fsal_obj_handle *parent,
 static void fvn_remove_dirent(struct fvn_fsal_obj_handle *parent,
 			      const char *name)
 {
+#ifndef VIVENAS_IGNORE_AVLTREE
 	struct fvn_dirent *dirent;
 
 	PTHREAD_RWLOCK_wrlock(&parent->obj_handle.obj_lock);
@@ -461,6 +456,11 @@ static void fvn_remove_dirent(struct fvn_fsal_obj_handle *parent,
 	if (dirent)
 		fvn_remove_dirent_locked(parent, dirent);
 	PTHREAD_RWLOCK_unlock(&parent->obj_handle.obj_lock);
+#endif
+	int rc = vn_unlink(parent->mfo_exp->mount_ctx, parent->inode, name);
+	if(rc != 0){
+		S5LOG_ERROR("failed fvn_remove_dirent on %ld_%s, rc:%d", parent->inode, name, rc);
+	}
 }
 
 /**
@@ -473,6 +473,7 @@ static void fvn_remove_dirent(struct fvn_fsal_obj_handle *parent,
  */
 void fvn_clean_export(struct fvn_fsal_obj_handle *root)
 {
+#ifndef VIVENAS_IGNORE_AVLTREE
 	struct fvn_fsal_obj_handle *child;
 	struct avltree_node *node;
 	struct fvn_dirent *dirent;
@@ -481,6 +482,8 @@ void fvn_clean_export(struct fvn_fsal_obj_handle *root)
 	tracepoint(fsalmem, fvn_inuse, __func__, __LINE__, &root->obj_handle,
 		   root->attrs.numlinks, root->is_export);
 #endif
+
+
 	while ((node = avltree_first(&root->mh_dir.avl_name))) {
 		dirent = avltree_container_of(node, struct fvn_dirent, avl_n);
 
@@ -493,7 +496,7 @@ void fvn_clean_export(struct fvn_fsal_obj_handle *root)
 		fvn_remove_dirent_locked(root, dirent);
 		PTHREAD_RWLOCK_unlock(&root->obj_handle.obj_lock);
 	}
-
+#endif
 }
 
 /**
@@ -503,7 +506,7 @@ void fvn_clean_export(struct fvn_fsal_obj_handle *root)
  */
 void fvn_clean_all_dirents(struct fvn_fsal_obj_handle *parent)
 {
-#ifdef VIVENAS_IGNORE
+#ifdef VIVENAS_IGNORE_AVLTREE
 	(void)parent;
 #else
 	struct avltree_node *node;
@@ -765,9 +768,13 @@ _fvn_alloc_handle(struct fvn_fsal_obj_handle *parent,
 		hdl->attrs.numlinks = 1;
 		break;
 	case DIRECTORY:
+#ifndef VIVENAS_IGNORE_AVLTREE
 		avltree_init(&hdl->mh_dir.avl_name, fvn_n_cmpf, 0);
 		avltree_init(&hdl->mh_dir.avl_index, fvn_i_cmpf, 0);
 		hdl->attrs.numlinks = 2;
+#else
+		hdl->attrs.numlinks = inode->i_links_count;
+#endif
 		hdl->mh_dir.numkids = 2;
 		hdl->mh_dir.parent = parent;
 		PTHREAD_MUTEX_init(&hdl->mh_dir.dir_lock, NULL);
@@ -844,8 +851,10 @@ static fsal_status_t _fvn_int_lookup(struct fvn_fsal_obj_handle *dir,
 				     struct fvn_fsal_obj_handle **entry,
 				     const char *func, int line)
 {
+#ifndef VIVENAS_IGNORE_AVLTREE
 	struct fvn_dirent *dirent;
-	
+#endif
+
 	*entry = NULL;
 	LogFullDebug(COMPONENT_FSAL, "Lookup %s in %p", path, dir);
 
@@ -869,20 +878,17 @@ static fsal_status_t _fvn_int_lookup(struct fvn_fsal_obj_handle *dir,
 	}
 
 #ifdef VIVENAS
-	dirent = fvn_dirent_lookup(dir, path);
-	if (dirent) {
-		*entry = dirent->hdl;
-	} else {
-		struct ViveInode *vn_inode;
-		int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, &vn_inode);
-		if(ino < 0)
-			return fsalstat(ERR_FSAL_NOENT, 0);
-		struct fsal_attrlist attrs;
-		inode2fsalattr(&attrs, vn_inode);
-		//though not found in fvn_fsal avl tree, the inode may still exists in underlying FS. this is difference with original fvn_fsal
-		struct fvn_fsal_obj_handle* hdl = fvn_alloc_handle(dir, path, vn_inode, posix2fsal_type(vn_inode->i_mode), dir->mfo_exp, &attrs);
-		*entry = hdl;
-	}
+	
+	struct ViveInode *vn_inode;
+	int64_t ino = vn_lookup_inode_no(dir->mfo_exp->mount_ctx, dir->inode, path, &vn_inode);
+	if(ino < 0)
+		return fsalstat(ERR_FSAL_NOENT, 0);
+	struct fsal_attrlist attrs;
+	inode2fsalattr(&attrs, vn_inode);
+	//though not found in fvn_fsal avl tree, the inode may still exists in underlying FS. this is difference with original fvn_fsal
+	struct fvn_fsal_obj_handle* hdl = fvn_alloc_handle(dir, path, vn_inode, posix2fsal_type(vn_inode->i_mode), dir->mfo_exp, &attrs);
+	*entry = hdl;
+
 #else
 	dirent = fvn_dirent_lookup(dir, path);
 	if (!dirent) {
@@ -1576,6 +1582,7 @@ static fsal_status_t fvn_unlink(struct fsal_obj_handle *dir_hdl,
 		break;
 	}
 #ifdef VIVENAS
+
 	int rc = vn_unlink(parent->mfo_exp->mount_ctx, parent->vninode->i_no, myself->m_name);
 	if (rc == 0)
 		status = fsalstat(ERR_FSAL_NO_ERROR, 0);
