@@ -184,7 +184,7 @@ fvn_up_run(struct fridgethr_context *ctx)
 {
 	struct glist_head *glist, *glistn;
 
-	glist_for_each_safe(glist, glistn, &MEM.fvn_exports) {
+	glist_for_each_safe(glist, glistn, &VIVENAS_MODULE.fvn_exports) {
 		struct fvn_fsal_export *mfe;
 		struct fvn_fsal_obj_handle *hdl;
 
@@ -217,7 +217,7 @@ fvn_up_pkginit(void)
 	int code = 0;
 	struct fridgethr_params frp;
 
-	if (MEM.up_interval == 0) {
+	if (VIVENAS_MODULE.up_interval == 0) {
 		/* Don't run up-thread */
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
@@ -230,7 +230,7 @@ fvn_up_pkginit(void)
 	memset(&frp, 0, sizeof(struct fridgethr_params));
 	frp.thr_max = 1;
 	frp.thr_min = 1;
-	frp.thread_delay = MEM.up_interval;
+	frp.thread_delay = VIVENAS_MODULE.up_interval;
 	frp.flavor = fridgethr_flavor_looper;
 
 	/* spawn MEM_UP background thread */

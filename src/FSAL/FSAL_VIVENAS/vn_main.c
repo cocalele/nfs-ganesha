@@ -39,6 +39,8 @@
 #include "vn_int.h"
 #include "fsal_convert.h"
 #include "../fsal_private.h"
+#include "FSAL/fsal_commonlib.h"
+
 
 /* MEM FSAL module private storage
  */
@@ -49,9 +51,10 @@
 static const char memname[] = "VIVENAS";
 
 void 	__PfAof_init();
+static void enable_flush_on_exit();
 
 /* my module private storage */
-struct fvn_fsal_module MEM = {
+struct fvn_fsal_module VIVENAS_MODULE = {
 	.fsal = {
 		.fs_info = {
 			.maxfilesize = INT64_MAX,
@@ -116,7 +119,7 @@ fvn_async_pkginit(void)
 	int code = 0;
 	struct fridgethr_params frp;
 
-	if (MEM.async_threads == 0) {
+	if (VIVENAS_MODULE.async_threads == 0) {
 		/* Don't run async-threads */
 		return fsalstat(ERR_FSAL_NO_ERROR, 0);
 	}
@@ -127,22 +130,22 @@ fvn_async_pkginit(void)
 	}
 
 	memset(&frp, 0, sizeof(struct fridgethr_params));
-	frp.thr_max = MEM.async_threads;
+	frp.thr_max = VIVENAS_MODULE.async_threads;
 	frp.thr_min = 1;
 	frp.flavor = fridgethr_flavor_worker;
 
 	/* spawn MEM_ASYNC background thread */
-	code = fridgethr_init(&fvn_async_fridge, "MEM_ASYNC_fridge", &frp);
+	code = fridgethr_init(&fvn_async_fridge, "VIVENAS_ASYNC_fridge", &frp);
 	if (code != 0) {
 		LogMajor(COMPONENT_FSAL,
-			 "Unable to initialize MEM_ASYNC fridge, error code %d.",
+			 "Unable to initialize VIVENAS_ASYNC fridge, error code %d.",
 			 code);
 	}
 
 	LogEvent(COMPONENT_FSAL,
-		 "Initialized FSAL_MEM async thread pool with %"
+		 "Initialized FSAL_VIVENAS async thread pool with %"
 		 PRIu32" threads.",
-		 MEM.async_threads);
+		 VIVENAS_MODULE.async_threads);
 
 	return posix2fsal_status(code);
 }
@@ -170,7 +173,7 @@ fvn_async_pkgshutdown(void)
 		fridgethr_cancel(fvn_async_fridge);
 	} else if (rc != 0) {
 		LogMajor(COMPONENT_FSAL,
-			 "Failed shutting down MEM_ASYNC threads: %d", rc);
+			 "Failed shutting down VIVENAS_ASYNC threads: %d", rc);
 	}
 
 	fridgethr_destroy(fvn_async_fridge);
@@ -190,7 +193,6 @@ static fsal_status_t fvn_init_config(struct fsal_module *fsal_hdl,
 	    container_of(fsal_hdl, struct fvn_fsal_module, fsal);
 	fsal_status_t status = {0, 0};
 
-	LogDebug(COMPONENT_FSAL, "MEM module setup.");
 	LogFullDebug(COMPONENT_FSAL,
 				 "Supported attributes default = 0x%" PRIx64,
 				 fvn_me->fsal.fs_info.supported_attrs);
@@ -211,7 +213,7 @@ static fsal_status_t fvn_init_config(struct fsal_module *fsal_hdl,
 	status = fvn_up_pkginit();
 	if (FSAL_IS_ERROR(status)) {
 		LogMajor(COMPONENT_FSAL,
-			 "Failed to initialize FSAL_MEM UP package %s",
+			 "Failed to initialize FSAL_VIVENAS UP package %s",
 			 fsal_err_txt(status));
 		return status;
 	}
@@ -220,7 +222,7 @@ static fsal_status_t fvn_init_config(struct fsal_module *fsal_hdl,
 	status = fvn_async_pkginit();
 	if (FSAL_IS_ERROR(status)) {
 		LogMajor(COMPONENT_FSAL,
-			 "Failed to initialize FSAL_MEM ASYNC package %s",
+			 "Failed to initialize FSAL_VIVENAS ASYNC package %s",
 			 fsal_err_txt(status));
 		return status;
 	}
@@ -257,31 +259,46 @@ static fsal_status_t fvn_init_config(struct fsal_module *fsal_hdl,
 MODULE_INIT void init(void)
 {
 	int retval;
-	struct fsal_module *myself = &MEM.fsal;
+	struct fsal_module *myself = &VIVENAS_MODULE.fsal;
 	__PfAof_init();
 
 	retval = register_fsal(myself, memname, FSAL_MAJOR_VERSION,
 			       FSAL_MINOR_VERSION, FSAL_ID_NO_PNFS);
 	if (retval != 0) {
 		LogCrit(COMPONENT_FSAL,
-			"MEM module failed to register.");
+			"VIVENAS module failed to register.");
 	}
 	myself->m_ops.create_export = fvn_create_export;
 	myself->m_ops.update_export = fvn_update_export;
 	myself->m_ops.init_config = fvn_init_config;
-	glist_init(&MEM.fvn_exports);
-	MEM.next_inode = 0xc0ffee;
+	glist_init(&VIVENAS_MODULE.fvn_exports);
+	VIVENAS_MODULE.next_inode = 0xc0ffee;
 
 	/* Initialize the fsal_obj_handle ops for FSAL MEM */
-	fvn_handle_ops_init(&MEM.handle_ops);
+	fvn_handle_ops_init(&VIVENAS_MODULE.handle_ops);
+	enable_flush_on_exit();
 }
 
+//this function only called if exit() called explicitly.
+//   e.g. SIGINT handler called exit() will trigger this function. if SIGINT handler not installed, this function also not called
 MODULE_FINI void finish(void)
 {
 	int retval;
 
-	LogDebug(COMPONENT_FSAL,
-		 "MEM module finishing.");
+	S5LOG_INFO("VIVENAS module finishing...");
+	struct glist_head* hi = NULL;
+	struct glist_head* hn = NULL;
+
+	glist_for_each_safe(hi, hn, &VIVENAS_MODULE.fsal.exports) {
+		struct fsal_export* exp_hdl = container_of(hi, struct fsal_export, exports);
+		struct fvn_fsal_export* myself;
+		myself = container_of(exp_hdl, struct fvn_fsal_export, export);
+		fsal_detach_export(exp_hdl->fsal, &exp_hdl->exports);
+		//vn_umount(myself->mount_ctx);
+		myself->mount_ctx = NULL;
+		free_export_ops(exp_hdl);
+	}
+
 
 	/* Shutdown UP calls */
 	fvn_up_pkgshutdown();
@@ -289,11 +306,11 @@ MODULE_FINI void finish(void)
 	/* Shutdown ASYNC threads */
 	fvn_async_pkgshutdown();
 
-	retval = unregister_fsal(&MEM.fsal);
+	retval = unregister_fsal(&VIVENAS_MODULE.fsal);
 	if (retval != 0) {
 		LogCrit(COMPONENT_FSAL,
-			"Unable to unload MEM FSAL.  Dying with extreme prejudice.");
-		abort();
+			"Unable to unload VIVENAS FSAL.  Dying with extreme prejudice.");
+		//abort(); //where has changed fsal_module.refcount ?
 	}
 }
 
@@ -318,4 +335,58 @@ void vns5log(int level, const char* format, ...)
 	fprintf(stderr, "[%s %s]%s\n", log_level_str[level], time_buf, buffer);
 	if (level == S5LOG_LEVEL_FATAL)
 		exit(-1);
+}
+
+
+
+static void flush_all_fs()
+{
+	S5LOG_INFO("Flushing all FS... ");
+
+	struct glist_head* hi = NULL;
+	struct glist_head* hn = NULL;
+
+	glist_for_each_safe(hi, hn, &VIVENAS_MODULE.fsal.exports) {
+		struct fsal_export* exp_hdl = container_of(hi, struct fsal_export, exports);
+		struct fvn_fsal_export* myself;
+		myself = container_of(exp_hdl, struct fvn_fsal_export, export);
+		struct ViveFsContext* ctx = myself->mount_ctx;
+		vn_flush_fs(ctx);
+	}
+
+
+
+
+
+	//vn_umount(g_fs_ctx);
+	//delete g_fs_ctx;
+	//g_fs_ctx = NULL;
+}
+
+static sighandler_t old_sig_handle = NULL;
+static void sigroutine(int signo)
+{
+	switch (signo)
+	{
+	case SIGTERM:
+		S5LOG_INFO("Receive signal SIGTERM.");
+		if (old_sig_handle)old_sig_handle(signo);
+		exit(1);
+
+	case SIGINT:
+		S5LOG_INFO("Receive signal SIGINT.");
+		flush_all_fs();
+		if (old_sig_handle)old_sig_handle(signo);
+		exit(0);
+	}
+	return;
+}
+static void enable_flush_on_exit()
+{
+	static int inited = 0;
+	if (!inited) {
+		S5LOG_DEBUG("install signal handler for SIGINT");
+		signal(SIGINT, sigroutine);
+		inited = 1;
+	}
 }

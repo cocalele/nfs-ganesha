@@ -137,13 +137,13 @@ struct fvn_fsal_obj_handle {
 struct fvn_dirent {
 	struct fvn_fsal_obj_handle *hdl; /**< Handle dirent points to */
 	struct fvn_fsal_obj_handle *dir; /**< Dir containing dirent */
+#ifndef VIVENAS_IGNORE_AVLTREE
 	const char *d_name;		 /**< Name of dirent */
 	uint64_t d_index;		 /**< index in dir */
-#ifndef VIVENAS_IGNORE_AVLTREE
 	struct avltree_node avl_n;	 /**< Entry in dir's avl_name tree */
 	struct avltree_node avl_i;	 /**< Entry in dir's avl_index tree */
-#endif
 	struct glist_head dlist;	 /**< Entry in hdl's dirents list */
+#endif
 };
 
 static inline bool fvn_unopenable_type(object_file_type_t type)
@@ -231,7 +231,7 @@ extern struct fridgethr *fvn_async_fridge;
 fsal_status_t fvn_up_pkginit(void);
 fsal_status_t fvn_up_pkgshutdown(void);
 
-extern struct fvn_fsal_module MEM;
+extern struct fvn_fsal_module VIVENAS_MODULE;
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
 #define KGRN  "\x1B[32m"

@@ -81,7 +81,8 @@ static void fvn_release_export(struct fsal_export *exp_hdl)
 
 	fsal_detach_export(exp_hdl->fsal, &exp_hdl->exports);
 	free_export_ops(exp_hdl);
-
+	S5LOG_INFO("fvn_release_export on db_path:%s", myself->db_path);
+	vn_umount(myself->mount_ctx);
 	glist_del(&myself->export_entry);
 
 	gsh_free(myself->export_path);
@@ -175,6 +176,26 @@ static struct state_t *fvn_alloc_state(struct fsal_export *exp_hdl,
 	return state;
 
 }
+static void fvn_unmount(struct fsal_export* parent_exp_hdl,
+	struct fsal_obj_handle* junction_obj)
+{
+	struct fvn_fsal_export* myself;
+
+	myself = container_of(parent_exp_hdl, struct fvn_fsal_export, export);
+	S5LOG_INFO("Unmount %s in fvn_unmount", myself->db_path);
+	S5LOG_WARN("fvn_unmount doing nothing!");
+	//TODO: this function is never called.
+	
+	//struct ViveFsContext* ctx = myself->mount_ctx;
+	//myself->mount_ctx = NULL;
+	//vn_umount(ctx);
+
+}
+static void fvn_unexport(struct fsal_export* exp_hdl, struct fsal_obj_handle* root_obj)
+{
+	S5LOG_INFO("fvn_unexport :%p", exp_hdl);
+	assert(0);
+}
 
 /* fvn_export_ops_init
  * overwrite vector entries with the methods that we support
@@ -188,6 +209,8 @@ void fvn_export_ops_init(struct export_ops *ops)
 	ops->create_handle = fvn_create_handle;
 	ops->get_fs_dynamic_info = fvn_get_dynamic_info;
 	ops->alloc_state = fvn_alloc_state;
+	ops->unmount = fvn_unmount;
+	ops->unexport = fvn_unexport;
 }
 
 const char *str_async_type(uint32_t async_type)
@@ -311,7 +334,7 @@ fsal_status_t fvn_create_export(struct fsal_module *fsal_hdl,
 	op_ctx->fsal_export = &myself->export;
 
 	/* Insert into exports list */
-	glist_add_tail(&MEM.fvn_exports, &myself->export_entry);
+	glist_add_tail(&VIVENAS_MODULE.fvn_exports, &myself->export_entry);
 
 	LogDebug(COMPONENT_FSAL,
 		 "Created exp %p - %s",

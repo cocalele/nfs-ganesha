@@ -260,6 +260,7 @@ static void fvn_insert_obj(struct fvn_fsal_obj_handle *parent,
 	dirent->hdl = child;
 	fvn_int_get_ref(child);
 	dirent->dir = parent;
+#ifndef VIVENAS_IGNORE_AVLTREE
 	dirent->d_name = gsh_strdup(name);
 	/* Index is hash of the name */
 	dirent->d_index = CityHash64(name, strlen(name));
@@ -269,7 +270,6 @@ static void fvn_insert_obj(struct fvn_fsal_obj_handle *parent,
 	glist_add_tail(&child->dirents, &dirent->dlist);
 	PTHREAD_RWLOCK_unlock(&child->obj_handle.obj_lock);
 
-#ifndef VIVENAS_IGNORE_AVLTREE
 	/* Link into parent */
 	PTHREAD_MUTEX_lock(&parent->mh_dir.dir_lock);
 	/* Name tree */
@@ -594,7 +594,7 @@ void vn_say_hello(const char* s);
 static fsal_status_t fvn_open_my_fd(struct fvn_fsal_obj_handle* myself, struct vn_fd *fd,
 				    fsal_openflags_t openflags)
 {
-	S5LOG_DEBUG( "VIVE=== call in fvn_open_my_fd, name:%s, mount ctx:%p" , myself->m_name, myself->mfo_exp->mount_ctx);
+	//S5LOG_DEBUG( "VIVE=== call in fvn_open_my_fd, name:%s, mount ctx:%p" , myself->m_name, myself->mfo_exp->mount_ctx);
 	fd->vf = vn_open_file_by_inode(myself->mfo_exp->mount_ctx, myself->vninode, O_RDWR|O_CREAT, 0);
 	if(fd->vf == NULL){
 		S5LOG_ERROR("Failed open file:%s ino:%ld", myself->m_name, myself->vninode->i_no);
@@ -679,9 +679,9 @@ _fvn_alloc_handle(struct fvn_fsal_obj_handle *parent,
 	isize = sizeof(struct fvn_fsal_obj_handle);
 	if (type == REGULAR_FILE) {
 		/* Regular files need space to read/write */
-		isize += MEM.inode_size;
+		isize += VIVENAS_MODULE.inode_size;
 	}
-	S5LOG_DEBUG("alloc handle for inode:%d name:%s", inode->i_no, name);
+	//S5LOG_DEBUG("alloc handle for inode:%d name:%s", inode->i_no, name);
 	hdl = gsh_calloc(1, isize);
 
 	/* Establish tree details for this directory */
@@ -689,7 +689,7 @@ _fvn_alloc_handle(struct fvn_fsal_obj_handle *parent,
 	hdl->obj_handle.fileid = inode->i_no; //atomic_postinc_uint64_t(&fvn_inode_number);
 	hdl->inode = inode->i_no;
 	hdl->vninode = inode;
-	hdl->datasize = MEM.inode_size;
+	hdl->datasize = VIVENAS_MODULE.inode_size;
 	glist_init(&hdl->dirents);
 	PTHREAD_RWLOCK_wrlock(&mfe->mfe_exp_lock);
 	glist_add_tail(&mfe->mfe_objs, &hdl->mfo_exp_entry);
@@ -798,7 +798,7 @@ _fvn_alloc_handle(struct fvn_fsal_obj_handle *parent,
 #endif
 
 	fsal_obj_handle_init(&hdl->obj_handle, &mfe->export, type);
-	hdl->obj_handle.obj_ops = &MEM.handle_ops;
+	hdl->obj_handle.obj_ops = &VIVENAS_MODULE.handle_ops;
 
 	if (parent != NULL) {
 		/* Attach myself to my parent */
@@ -1396,7 +1396,7 @@ static fsal_status_t fvn_getattrs(struct fsal_obj_handle *obj_hdl,
 	struct fvn_fsal_obj_handle *myself =
 		container_of(obj_hdl, struct fvn_fsal_obj_handle, obj_handle);
 	S5LOG_DEBUG("call fvn_getattrs on inode:%d", myself->inode);
-
+#ifndef VIVENAS_IGNORE_AVLTREE
 	if (!myself->is_export && glist_empty(&myself->dirents)) {
 		/* Removed entry - stale */
 		LogDebug(COMPONENT_FSAL,
@@ -1404,7 +1404,7 @@ static fsal_status_t fvn_getattrs(struct fsal_obj_handle *obj_hdl,
 			 myself, myself->m_name);
 		return fsalstat(ERR_FSAL_STALE, ESTALE);
 	}
-
+#endif
 	if (obj_hdl->type == DIRECTORY) {
 		/* We need to update the numlinks */
 		myself->attrs.numlinks =
@@ -2182,7 +2182,7 @@ void fvn_read2(struct fsal_obj_handle *obj_hdl,
 	if (has_lock)
 		PTHREAD_RWLOCK_unlock(&obj_hdl->obj_lock);
 
-	if (MEM.async_threads > 0 &&
+	if (VIVENAS_MODULE.async_threads > 0 &&
 	    (async_type > MEM_RANDOM_OR_INLINE ||
 	    ((async_type == MEM_RANDOM_OR_INLINE) && ((random() % 1) == 1)))) {
 		struct fvn_async_arg *async_arg;
@@ -2325,7 +2325,7 @@ void fvn_write2(struct fsal_obj_handle *obj_hdl,
 	if (has_lock)
 		PTHREAD_RWLOCK_unlock(&obj_hdl->obj_lock);
 
-	if (MEM.async_threads > 0 &&
+	if (VIVENAS_MODULE.async_threads > 0 &&
 	    (async_type > MEM_RANDOM_OR_INLINE ||
 	    ((async_type == MEM_RANDOM_OR_INLINE) && ((random() % 1) == 1)))) {
 		struct fvn_async_arg *async_arg;
