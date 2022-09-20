@@ -1052,7 +1052,7 @@ out:
 		S5LOG_ERROR("Lock applied but not released!");
 	}
 
-	if (op_ctx->fsal_private != parent)
+	if (lock_applyed && op_ctx->fsal_private != parent)
 		PTHREAD_RWLOCK_unlock(&parent->obj_lock);
 
 	if (!FSAL_IS_ERROR(status) && attrs_out != NULL) {
@@ -2095,7 +2095,8 @@ void fvn_read2(struct fsal_obj_handle *obj_hdl,
 	uint64_t offset = read_arg->offset;
 	int i;
 #endif
-	bool has_lock, closefd = false;
+	bool has_lock = false;
+	bool closefd = false;
 	fsal_status_t status = {ERR_FSAL_NO_ERROR, 0};
 	bool reusing_open_state_fd = false;
 	struct fvn_fsal_export *fvn_export =
@@ -2111,12 +2112,16 @@ void fvn_read2(struct fsal_obj_handle *obj_hdl,
 		return;
 	}
 #ifdef VIVENAS
+	if (read_arg->state) {
+		fsal_fd = container_of(read_arg->state, struct vn_fd, state);
+	} else {
 	/* Find an FD */
-	status = fsal_find_fd((struct fsal_fd**)&fsal_fd, obj_hdl, (struct fsal_fd*)&myself->mh_file.fd,
+		status = fsal_find_fd((struct fsal_fd**)&fsal_fd, obj_hdl, (struct fsal_fd*)&myself->mh_file.fd,
 			      &myself->mh_file.share, bypass, read_arg->state,
 			      FSAL_O_READ, fvn_open_func, fvn_close_func,
 			      &has_lock, &closefd, false,
 			      &reusing_open_state_fd);
+	}
 #else
 	status = fsal_find_fd(&fsal_fd, obj_hdl, &myself->mh_file.fd,
 		&myself->mh_file.share, bypass, read_arg->state,
@@ -2132,7 +2137,7 @@ void fvn_read2(struct fsal_obj_handle *obj_hdl,
 	read_arg->io_amount = 0;
 
 #ifdef VIVENAS
-	size_t sz = vn_readv(fvn_export->mount_ctx, myself->mh_file.fd.vf, read_arg->iov, read_arg->iov_count, read_arg->offset);
+	size_t sz = vn_readv(fvn_export->mount_ctx, fsal_fd->vf, read_arg->iov, read_arg->iov_count, read_arg->offset);
 	if (sz < 0) {
 		LogCrit(COMPONENT_FSAL, "vn_writev failed, rc:%ld", sz);
 		//todo: return sz;
@@ -2255,8 +2260,6 @@ void fvn_write2(struct fsal_obj_handle *obj_hdl,
 	bool has_lock, closefd = false;
 	fsal_status_t status = {ERR_FSAL_NO_ERROR, 0};
 	bool reusing_open_state_fd = false;
-	uint64_t offset = write_arg->offset;
-	int i;
 	struct fvn_fsal_export *fvn_export =
 	      container_of(op_ctx->fsal_export, struct fvn_fsal_export, export);
 	uint32_t async_type = atomic_fetch_uint32_t(&fvn_export->async_type);
@@ -2269,23 +2272,37 @@ void fvn_write2(struct fsal_obj_handle *obj_hdl,
 			caller_arg);
 		return;
 	}
-
-	/* Find an FD */
-	status = fsal_find_fd((struct fsal_fd**)&fsal_fd, obj_hdl, (struct fsal_fd*)&myself->mh_file.fd,
+	if (write_arg->state) {
+		fsal_fd = container_of(write_arg->state, struct vn_fd, state);
+	} else {
+		/* Find an FD */
+		status = fsal_find_fd((struct fsal_fd**)&fsal_fd, obj_hdl, (struct fsal_fd*)&myself->mh_file.fd,
 			      &myself->mh_file.share, bypass, write_arg->state,
 			      FSAL_O_WRITE, fvn_open_func, fvn_close_func,
 			      &has_lock, &closefd, false,
 			      &reusing_open_state_fd);
+	}
 	if (FSAL_IS_ERROR(status)) {
 		done_cb(obj_hdl, status, write_arg, caller_arg);
 		return;
 	}
 
+#ifdef VIVENAS
+
+	size_t sz = vn_writev(fvn_export->mount_ctx, fsal_fd->vf, write_arg->iov, write_arg->iov_count, write_arg->offset);
+	if(sz <0){
+		LogCrit(COMPONENT_FSAL, "vn_writev failed, rc:%ld", sz);
+		//todo: return sz;
+
+	}
+#else
+	uint64_t offset = write_arg->offset;
+	int i;
 	for (i = 0; i < write_arg->iov_count; i++) {
 		size_t bufsize;
 
 		bufsize = write_arg->iov[i].iov_len;
-		if (offset +  bufsize > myself->attrs.filesize) {
+		if (offset + bufsize > myself->attrs.filesize) {
 			myself->attrs.filesize = myself->attrs.spaceused =
 				offset + bufsize;
 		}
@@ -2295,17 +2312,13 @@ void fvn_write2(struct fsal_obj_handle *obj_hdl,
 			/* Data to write */
 			writesize = MIN(bufsize, myself->datasize - offset);
 			memcpy(myself->data + offset,
-			       write_arg->iov[i].iov_base, writesize);
+				write_arg->iov[i].iov_base, writesize);
 		}
 		write_arg->io_amount += bufsize;
 		offset += bufsize;
 	}
-	size_t sz = vn_writev(fvn_export->mount_ctx, myself->mh_file.fd.vf, write_arg->iov, write_arg->iov_count, write_arg->offset);
-	if(sz <0){
-		LogCrit(COMPONENT_FSAL, "vn_writev failed, rc:%ld", sz);
-		//todo: return sz;
 
-	}
+#endif
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, fvn_write, __func__, __LINE__, obj_hdl,
 			   myself->m_name, write_arg->state,

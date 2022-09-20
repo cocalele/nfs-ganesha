@@ -209,14 +209,15 @@ static fsal_status_t fvn_init_config(struct fsal_module *fsal_hdl,
 	if (!config_error_is_harmless(err_type))
 		return fsalstat(ERR_FSAL_INVAL, 0);
 
+	//TODO: I don't know what's UP call
 	/* Initialize UP calls */
-	status = fvn_up_pkginit();
-	if (FSAL_IS_ERROR(status)) {
-		LogMajor(COMPONENT_FSAL,
-			 "Failed to initialize FSAL_VIVENAS UP package %s",
-			 fsal_err_txt(status));
-		return status;
-	}
+	//status = fvn_up_pkginit();
+	//if (FSAL_IS_ERROR(status)) {
+	//	LogMajor(COMPONENT_FSAL,
+	//		 "Failed to initialize FSAL_VIVENAS UP package %s",
+	//		 fsal_err_txt(status));
+	//	return status;
+	//}
 
 	/* Initialize ASYNC call back threads */
 	status = fvn_async_pkginit();
