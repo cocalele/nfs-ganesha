@@ -172,7 +172,6 @@ static struct state_t *fvn_alloc_state(struct fsal_export *exp_hdl,
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, fvn_alloc_state, __func__, __LINE__, state);
 #endif
-	S5LOG_DEBUG("alloc state:%p", state);
 	return state;
 
 }
