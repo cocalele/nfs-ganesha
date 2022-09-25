@@ -82,7 +82,7 @@ static void fvn_release_export(struct fsal_export *exp_hdl)
 	fsal_detach_export(exp_hdl->fsal, &exp_hdl->exports);
 	free_export_ops(exp_hdl);
 	S5LOG_INFO("fvn_release_export on db_path:%s", myself->db_path);
-	vn_umount(myself->mount_ctx);
+	//vn_umount(myself->mount_ctx);
 	glist_del(&myself->export_entry);
 
 	gsh_free(myself->export_path);
@@ -191,9 +191,14 @@ static void fvn_unmount(struct fsal_export* parent_exp_hdl,
 
 }
 static void fvn_unexport(struct fsal_export* exp_hdl, struct fsal_obj_handle* root_obj)
-{
+{//this function is called when ganesh get SIGTERM
 	S5LOG_INFO("fvn_unexport :%p", exp_hdl);
-	assert(0);
+	struct fvn_fsal_export* myself;
+
+	myself = container_of(exp_hdl, struct fvn_fsal_export, export);
+	vn_umount(myself->mount_ctx);
+	myself->mount_ctx = NULL;
+	//assert(0);
 }
 
 /* fvn_export_ops_init

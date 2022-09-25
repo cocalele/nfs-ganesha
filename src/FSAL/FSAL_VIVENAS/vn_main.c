@@ -363,21 +363,29 @@ static void flush_all_fs()
 	//delete g_fs_ctx;
 	//g_fs_ctx = NULL;
 }
+//Run ganesha.nfsd -h, will get following:
+//----------------- Signals ----------------
+//SIGHUP: Reload LOGand EXPORT config
+//SIGTERM : Cleanly terminate the program
 
-static sighandler_t old_sig_handle = NULL;
+
+static sighandler_t old_int_handle = NULL;
+static sighandler_t old_term_handle = NULL;
+
 static void sigroutine(int signo)
 {
 	switch (signo)
 	{
-	case SIGTERM:
+	case SIGTERM://ganesha exit on SIGTERM
 		S5LOG_INFO("Receive signal SIGTERM.");
-		if (old_sig_handle)old_sig_handle(signo);
+		flush_all_fs();
+		if (old_term_handle)old_term_handle(signo);
 		exit(1);
 
 	case SIGINT:
 		S5LOG_INFO("Receive signal SIGINT.");
 		flush_all_fs();
-		if (old_sig_handle)old_sig_handle(signo);
+		if (old_int_handle)old_int_handle(signo);
 		exit(0);
 	}
 	return;
@@ -387,7 +395,8 @@ static void enable_flush_on_exit()
 	static int inited = 0;
 	if (!inited) {
 		S5LOG_DEBUG("install signal handler for SIGINT");
-		signal(SIGINT, sigroutine);
+		old_int_handle = signal(SIGINT, sigroutine);
+		//old_term_handle = signal(SIGTERM, sigroutine);
 		inited = 1;
 	}
 }
