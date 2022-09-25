@@ -568,8 +568,11 @@ static void inode2fsalattr(struct fsal_attrlist* attrs, struct ViveInode* inode)
 	struct stat fstat;
 
 	fstat.st_atime = inode->i_atime;
+	//fstat.st_atimensec = 0;
 	fstat.st_ctime = inode->i_ctime;
-	fstat.st_mtime = inode->i_ctime;
+	//fstat.st_ctimensec = 0;
+	fstat.st_mtime = inode->i_mtime;
+	//fstat.st_mtimensec = 0;
 	fstat.st_blksize = 4096;
 	fstat.st_dev = 0;
 	fstat.st_ino = inode->i_no;
@@ -579,8 +582,12 @@ static void inode2fsalattr(struct fsal_attrlist* attrs, struct ViveInode* inode)
 	fstat.st_mode = inode->i_mode;
 	fstat.st_size = inode->i_size;
 	fstat.st_blocks = (fstat.st_size + fstat.st_blksize - 1) / fstat.st_blksize;
+	fstat.st_nlink = inode->i_links_count;
 
 	posix2fsal_attributes_all(&fstat, attrs);
+	attrs->atime.tv_nsec = 0;
+	attrs->mtime.tv_nsec = 0;
+	attrs->ctime.tv_nsec = 0;
 
 }
 #define  fvn_int_lookup(d, p, e) _fvn_int_lookup(d, p, e, __func__, __LINE__)
@@ -862,7 +869,7 @@ static fsal_status_t fvn_readdir(struct fsal_obj_handle* dir_hdl,
 		fsal_prepare_attrs(&attrs, attrmask);
 		inode2fsalattr(&attrs, inode);
 
-		S5LOG_DEBUG("readdir return:%s", entry_name);
+		//S5LOG_DEBUG("readdir return:%s", entry_name);
 		struct fvn_fsal_obj_handle* hdl = fvn_alloc_handle(myself, entry_name, inode, posix2fsal_type(inode->i_mode),  myself->mfo_exp, &attrs);
 
 		cb_rc = cb(entry_name, &hdl->obj_handle, &attrs, dir_state, vn_iterator_has_next(it) ? i+1 : UINT64_MAX);
@@ -1039,13 +1046,6 @@ static fsal_status_t fvn_getattrs(struct fsal_obj_handle *obj_hdl,
 {
 	struct fvn_fsal_obj_handle *myself =
 		container_of(obj_hdl, struct fvn_fsal_obj_handle, obj_handle);
-	S5LOG_DEBUG("call fvn_getattrs on inode:%d", myself->inode);
-
-	if (obj_hdl->type == DIRECTORY) {
-		/* We need to update the numlinks */
-		myself->attrs.numlinks =
-			atomic_fetch_uint32_t(&myself->mh_dir.numkids);
-	}
 
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, fvn_getattrs, __func__, __LINE__, obj_hdl,
@@ -1058,6 +1058,8 @@ static fsal_status_t fvn_getattrs(struct fsal_obj_handle *obj_hdl,
 		     myself->m_name,
 		     myself->attrs.numlinks);
 	inode2fsalattr(outattrs, myself->vninode);
+	//S5LOG_DEBUG("call fvn_getattrs on inode:%d %p atime is: %ld, but in attr atime:%ld", myself->inode, myself->vninode,
+	//	myself->vninode->i_atime, outattrs->atime.tv_sec);
 
 	return fsalstat(ERR_FSAL_NO_ERROR, 0);
 }
@@ -1435,7 +1437,7 @@ fsal_status_t fvn_open2(struct fsal_obj_handle *obj_hdl,
 
 		if (openflags & FSAL_O_WRITE)
 			openflags |= FSAL_O_READ;
-		S5LOG_DEBUG("open myfd:%p myself fd:%p, myname:%s", my_fd, &myself->mh_file.fd, myself->m_name);
+		//S5LOG_DEBUG("open myfd:%p myself fd:%p, myname:%s", my_fd, &myself->mh_file.fd, myself->m_name);
 		fvn_open_my_fd(myself, my_fd, openflags);
 
 		if (truncated)
@@ -1832,7 +1834,7 @@ void fvn_write2(struct fsal_obj_handle *obj_hdl,
 	struct fvn_fsal_obj_handle *myself = container_of(obj_hdl,
 				  struct fvn_fsal_obj_handle, obj_handle);
 	struct vn_fd *fsal_fd;
-	bool has_lock, closefd = false;
+	bool has_lock=false, closefd = false;
 	fsal_status_t status = {ERR_FSAL_NO_ERROR, 0};
 	bool reusing_open_state_fd = false;
 	struct fvn_fsal_export *fvn_export =
@@ -1868,7 +1870,7 @@ void fvn_write2(struct fsal_obj_handle *obj_hdl,
 		//todo: return sz;
 
 	}
-
+	write_arg->io_amount=sz;
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, fvn_write, __func__, __LINE__, obj_hdl,
 			   myself->m_name, write_arg->state,
@@ -1982,7 +1984,7 @@ fsal_status_t fvn_lock_op2(struct fsal_obj_handle *obj_hdl,
 	struct fvn_fsal_obj_handle *myself = container_of(obj_hdl,
 				  struct fvn_fsal_obj_handle, obj_handle);
 	struct vn_fd fsal_fd = {0}, *fdp = &fsal_fd;
-	bool has_lock, closefd = false;
+	bool has_lock=false, closefd = false;
 	bool bypass = false;
 	fsal_openflags_t openflags;
 	fsal_status_t status = {ERR_FSAL_NO_ERROR, 0};
