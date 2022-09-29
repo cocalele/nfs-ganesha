@@ -33,7 +33,7 @@
 #ifdef USE_LTTNG
 #include "gsh_lttng/fsal_mem.h"
 #endif
-#include "vivenas.h"
+#include "vn_vivenas.h"
 
 struct fvn_fsal_obj_handle;
 

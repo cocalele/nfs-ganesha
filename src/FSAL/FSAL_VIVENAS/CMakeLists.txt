@@ -40,7 +40,7 @@ SET(fsalvn_LIB_SRCS
    vn_export.c
    vn_handle.c
    vn_int.h
-   vn_main.c
+   vn_fsal_module.c
    vn_up.c
 )
 

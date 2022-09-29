@@ -44,7 +44,7 @@
 #include "../Stackable_FSALs/FSAL_MDCACHE/mdcache_ext.h"
 #include "nfs_core.h"
 #include "common_utils.h"
-#include "vivenas.h"
+#include "vn_vivenas.h"
 
 static void fvn_release(struct fsal_obj_handle *obj_hdl);
 

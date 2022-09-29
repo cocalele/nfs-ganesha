@@ -47,7 +47,7 @@
 #include "nfs_core.h"
 #include "export_mgr.h"
 #include <misc/portable.h>
-#include "vivenas.h"
+#include "vn_vivenas.h"
 #ifdef USE_LTTNG
 #include "gsh_lttng/fsal_mem.h"
 #endif
