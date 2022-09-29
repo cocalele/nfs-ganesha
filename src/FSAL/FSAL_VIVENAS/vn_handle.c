@@ -88,7 +88,6 @@ static void fvn_cleanup(struct fvn_fsal_obj_handle *myself)
 	case REGULAR_FILE:
 		break;
 	case SYMBOLIC_LINK:
-		gsh_free(myself->mh_symlink.link_contents);
 		break;
 	case SOCKET_FILE:
 	case CHARACTER_FILE:
@@ -729,7 +728,7 @@ static fsal_status_t fvn_create_obj(struct fvn_fsal_obj_handle *parent,
 		return fsalstat(ERR_FSAL_NOMEM, 0);
 	hdl->vninode = vninode;
 	//hdl->mh_file.fd.vf = vn_open_file(parent->mfo_exp->mount_ctx, parent->inode, name, O_RDWR | O_CREAT, m | 00644);
-	hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx, vninode,  O_RDWR , m );
+	//hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx, vninode,  O_RDWR , m );
 	*new_obj = &hdl->obj_handle;
 
 	if (attrs_out != NULL)
@@ -1001,9 +1000,19 @@ static fsal_status_t fvn_symlink(struct fsal_obj_handle *dir_hdl,
 
 	hdl = container_of(*new_obj, struct fvn_fsal_obj_handle, obj_handle);
 
-	hdl->mh_symlink.link_contents = gsh_strdup(link_path);
-
-	return fsalstat(ERR_FSAL_NO_ERROR, 0);
+	//hdl->mh_symlink.link_contents = gsh_strdup(link_path);
+	struct ViveFile* f = vn_open_file_by_inode(hdl->mfo_exp->mount_ctx, hdl->vninode, O_RDWR, 0);
+	if(f == NULL){
+		return fsalstat(ERR_FSAL_IO, 0);
+	}
+	size_t link_len = strlen(link_path);
+	size_t sz = vn_write(hdl->mfo_exp->mount_ctx, f, link_path, link_len, 0);
+	if(sz != link_len){
+		S5LOG_ERROR("Failed to wrike symbol link, rc:%d", sz);
+		status = fsalstat(ERR_FSAL_IO, 0);
+	}
+	vn_close_file(hdl->mfo_exp->mount_ctx, f);
+	return status;
 }
 
 /**
@@ -1028,10 +1037,21 @@ static fsal_status_t fvn_readlink(struct fsal_obj_handle *obj_hdl,
 		return fsalstat(ERR_FSAL_INVAL, 0);
 	}
 
-	link_content->len = strlen(myself->mh_symlink.link_contents) + 1;
-	link_content->addr = gsh_strdup(myself->mh_symlink.link_contents);
+	fsal_status_t status = fsalstat(ERR_FSAL_NO_ERROR, 0);
+	struct ViveFile* f = vn_open_file_by_inode(myself->mfo_exp->mount_ctx, myself->vninode, O_RDONLY, 0);
+	if (f == NULL) {
+		return fsalstat(ERR_FSAL_IO, 0);
+	}
+	link_content->len = myself->vninode->i_size+1;
+	link_content->addr = malloc(link_content->len+1);
+	size_t sz = vn_read(myself->mfo_exp->mount_ctx, f, link_content->addr, myself->vninode->i_size, 0);
+	if(sz != myself->vninode->i_size){
+		status = fsalstat(ERR_FSAL_IO, 0);
+	}
+	((char*)link_content->addr)[link_content->len - 1]=0;
+	vn_close_file(myself->mfo_exp->mount_ctx, f);
 
-	return fsalstat(ERR_FSAL_NO_ERROR, 0);
+	return status;
 }
 
 /**

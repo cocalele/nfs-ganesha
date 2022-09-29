@@ -117,9 +117,7 @@ struct fvn_fsal_obj_handle {
 			object_file_type_t nodetype;
 			fsal_dev_t dev;
 		} mh_node;
-		struct {
-			char *link_contents;
-		} mh_symlink;
+		
 	};
 	struct glist_head dirents; /**< List of dirents pointing to obj */
 	struct glist_head mfo_exp_entry; /**< Link into mfs_objs */
