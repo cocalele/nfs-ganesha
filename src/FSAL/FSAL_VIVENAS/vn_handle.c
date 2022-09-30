@@ -1105,28 +1105,42 @@ fsal_status_t fvn_setattr2(struct fsal_obj_handle *obj_hdl,
 	struct fvn_fsal_obj_handle *myself =
 		container_of(obj_hdl, struct fvn_fsal_obj_handle, obj_handle);
 
-	/* apply umask, if mode attribute is to be changed */
-	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_MODE))
-		attrs_set->mode &=
-		    ~op_ctx->fsal_export->exp_ops.fs_umask(op_ctx->fsal_export);
 	S5LOG_DEBUG("fvn_setattr2 on file:%ld_%s", myself->inode, myself->m_name);
+	/* apply umask, if mode attribute is to be changed */
+	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_MODE)){
+		attrs_set->mode &= ~op_ctx->fsal_export->exp_ops.fs_umask(op_ctx->fsal_export);
+		myself->vninode->i_mode = (myself->vninode->i_mode & ~00777) | (attrs_set->mode & 00777);
+	}
+	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_OWNER)) {
+		myself->vninode->i_uid = attrs_set->owner;
+	}
+	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_GROUP)) {
+		myself->vninode->i_gid = attrs_set->group;
+	}
+	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_CTIME)) {
+		myself->vninode->i_ctime = attrs_set->ctime.tv_sec;
+	}
+	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_ATIME)) {
+		myself->vninode->i_atime = attrs_set->atime.tv_sec;
+	}
+	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_MTIME)) {
+		myself->vninode->i_mtime = attrs_set->mtime.tv_sec;
+	}
 	/* Test if size is being set, make sure file is regular and if so,
 	 * require a read/write file descriptor.
 	 */
-	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_SIZE) &&
-	    obj_hdl->type != REGULAR_FILE) {
-		LogFullDebug(COMPONENT_FSAL,
-			     "Setting size on non-regular file");
-		return fsalstat(ERR_FSAL_INVAL, EINVAL);
+	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_SIZE) ){
+	    if(obj_hdl->type != REGULAR_FILE) {
+			LogFullDebug(COMPONENT_FSAL, "Setting size on non-regular file");
+			return fsalstat(ERR_FSAL_INVAL, EINVAL);
+		}
+		myself->vninode->i_size = attrs_set->filesize;
 	}
-
-	fvn_copy_attrs_mask(attrs_set, &myself->attrs);
-
-#ifdef USE_LTTNG
-	tracepoint(fsalmem, fvn_setattrs, __func__, __LINE__, obj_hdl,
-		   myself->m_name, myself->attrs.filesize,
-		   myself->attrs.numlinks, myself->attrs.change);
-#endif
+	int rc = vn_persist_inode(myself->mfo_exp->mount_ctx, myself->vninode);
+	if(rc != 0){
+		S5LOG_ERROR("persist inode failed, rc:%d");
+		return fsalstat(ERR_FSAL_IO, -rc);
+	}
 	return fsalstat(ERR_FSAL_NO_ERROR, EINVAL);
 }
 
