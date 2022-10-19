@@ -432,6 +432,7 @@ _fvn_alloc_handle(struct fvn_fsal_obj_handle *parent,
 	hdl->obj_handle.fileid = inode->i_no; //atomic_postinc_uint64_t(&fvn_inode_number);
 	hdl->inode = inode->i_no;
 	hdl->vninode = inode;
+	vn_add_inode_ref(inode);
 	hdl->datasize = VIVENAS_MODULE.inode_size;
 	glist_init(&hdl->dirents);
 	PTHREAD_RWLOCK_wrlock(&mfe->mfe_exp_lock);
@@ -629,7 +630,7 @@ static fsal_status_t _fvn_int_lookup(struct fvn_fsal_obj_handle *dir,
 	//though not found in fvn_fsal avl tree, the inode may still exists in underlying FS. this is difference with original fvn_fsal
 	struct fvn_fsal_obj_handle* hdl = fvn_alloc_handle(dir, path, vn_inode, posix2fsal_type(vn_inode->i_mode), dir->mfo_exp, &attrs);
 	*entry = hdl;
-
+	vn_dec_inode_ref(vn_inode);
 
 #ifdef USE_LTTNG
 	tracepoint(fsalmem, fvn_lookup, func, line, &(*entry)->obj_handle,
@@ -710,7 +711,7 @@ static fsal_status_t fvn_create_obj(struct fvn_fsal_obj_handle *parent,
 #else
 	m |= attrs_in->mode;
 #endif
-	S5LOG_DEBUG("will create file:%s mode:00%o, uid:%d", name, m, attrs_in->owner);
+	//S5LOG_DEBUG("will create file:%s mode:00%o, uid:%d", name, m, attrs_in->owner);
 	struct ViveInode* vninode;
 	int64_t ino = vn_create_file(parent->mfo_exp->mount_ctx, parent->inode, name, m , 
 		             (int16_t)attrs_in->owner, (int16_t)attrs_in->group, &vninode);
@@ -719,14 +720,17 @@ static fsal_status_t fvn_create_obj(struct fvn_fsal_obj_handle *parent,
 	}
 	/* allocate an obj_handle and fill it up */
 	hdl = fvn_alloc_handle(parent,
-			       name,
-					vninode,
-			       type,
-			       mfe,
-			       attrs_in);
-	if (!hdl)
-		return fsalstat(ERR_FSAL_NOMEM, 0);
-	hdl->vninode = vninode;
+		name,
+		vninode,
+		type,
+		mfe,
+		attrs_in);
+	if (!hdl){
+
+		status = fsalstat(ERR_FSAL_NOMEM, 0);
+		goto release1;
+	}
+
 	//hdl->mh_file.fd.vf = vn_open_file(parent->mfo_exp->mount_ctx, parent->inode, name, O_RDWR | O_CREAT, m | 00644);
 	//hdl->mh_file.fd.vf = vn_open_file_by_inode(parent->mfo_exp->mount_ctx, vninode,  O_RDWR , m );
 	*new_obj = &hdl->obj_handle;
@@ -734,7 +738,10 @@ static fsal_status_t fvn_create_obj(struct fvn_fsal_obj_handle *parent,
 	if (attrs_out != NULL)
 		inode2fsalattr(attrs_out,vninode);
 
-	return fsalstat(ERR_FSAL_NO_ERROR, 0);
+	status = fsalstat(ERR_FSAL_NO_ERROR, 0);
+release1:
+	vn_dec_inode_ref(vninode);
+	return status;
 }
 
 /* handle methods
@@ -858,6 +865,7 @@ static fsal_status_t fvn_readdir(struct fsal_obj_handle* dir_hdl,
 		if(inode == NULL){
 			return fsalstat(ERR_FSAL_NO_ERROR, 0);
 		}
+		vn_dec_inode_ref(inode);
 	}
 
 
@@ -874,7 +882,7 @@ static fsal_status_t fvn_readdir(struct fsal_obj_handle* dir_hdl,
 		cb_rc = cb(entry_name, &hdl->obj_handle, &attrs, dir_state, vn_iterator_has_next(it) ? i+1 : UINT64_MAX);
 
 		fsal_release_attrs(&attrs);
-
+		vn_dec_inode_ref(inode);
 		count++;
 
 		if (cb_rc >= DIR_TERMINATE) {

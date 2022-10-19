@@ -186,7 +186,10 @@ static inline void _fvn_free_handle(struct fvn_fsal_obj_handle *hdl,
 		gsh_free(hdl->m_name);
 		hdl->m_name = NULL;
 	}
-
+	if(hdl->vninode != NULL){
+		vn_dec_inode_ref(hdl->vninode);
+		hdl->vninode = NULL;
+	}
 	gsh_free(hdl);
 }
 
