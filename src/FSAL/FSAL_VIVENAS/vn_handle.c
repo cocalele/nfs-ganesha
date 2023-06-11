@@ -1113,7 +1113,7 @@ fsal_status_t fvn_setattr2(struct fsal_obj_handle *obj_hdl,
 	struct fvn_fsal_obj_handle *myself =
 		container_of(obj_hdl, struct fvn_fsal_obj_handle, obj_handle);
 
-	S5LOG_DEBUG("fvn_setattr2 on file:%ld_%s", myself->inode, myself->m_name);
+	//S5LOG_DEBUG("fvn_setattr2 on file:%ld_%s", myself->inode, myself->m_name);
 	/* apply umask, if mode attribute is to be changed */
 	if (FSAL_TEST_MASK(attrs_set->valid_mask, ATTR_MODE)){
 		attrs_set->mode &= ~op_ctx->fsal_export->exp_ops.fs_umask(op_ctx->fsal_export);
@@ -1419,7 +1419,7 @@ fsal_status_t fvn_open2(struct fsal_obj_handle *obj_hdl,
 		my_fd = container_of(state, struct vn_fd, state);
 	}
 	myself = container_of(obj_hdl, struct fvn_fsal_obj_handle, obj_handle);
-	S5LOG_DEBUG("open file:%s myslef:%p myself_name:%s state:%p", name, myself, myself->m_name, state);
+	//S5LOG_DEBUG("open file:%s myslef:%p myself_name:%s state:%p", name, myself, myself->m_name, state);
 	if (setattrs)
 		LogAttrlist(COMPONENT_FSAL, NIV_FULL_DEBUG,
 			    "attrs_set ", attrs_set, false);
