@@ -33,7 +33,7 @@ set(ZOOKEEPER_SOURCE ${PUREFLASH_HOME}/thirdParty/zookeeper/zookeeper-client/zoo
 
 ########### next target ###############
 INCLUDE_DIRECTORIES( ${VIVENAS_HOME}/include ${ROCKSDB_HOME} ${ROCKSDB_HOME}/include ${PUREFLASH_HOME}/common/include ${PUREFLASH_HOME}/pfs/nlohmann_json/include )
-LINK_DIRECTORIES(${VIVENAS_HOME}/pre_build_libs/${OS_NAME} ${VIVENAS_HOME}/build/bin ${PUREFLASH_HOME}/build_deb/bin ${ROCKSDB_HOME} ${ZOOKEEPER_SOURCE}/.libs) 
+LINK_DIRECTORIES( ${VIVENAS_HOME}/build/bin ${PUREFLASH_HOME}/build/bin ${ROCKSDB_HOME}/build ) 
 #LINK_DIRECTORIES(${VIVENAS_HOME}/build/bin ${PUREFLASH_HOME}/build_deb/bin ${ROCKSDB_HOME} ${ZOOKEEPER_SOURCE}/.libs)             )
 
 SET(fsalvn_LIB_SRCS
