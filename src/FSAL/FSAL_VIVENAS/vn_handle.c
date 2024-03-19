@@ -1761,8 +1761,8 @@ void fvn_read2(struct fsal_obj_handle *obj_hdl,
 	struct fvn_fsal_export *fvn_export =
 	      container_of(op_ctx->fsal_export, struct fvn_fsal_export, export);
 	uint32_t async_type = atomic_fetch_uint32_t(&fvn_export->async_type);
-	uint32_t async_stall_delay =
-			atomic_fetch_uint32_t(&fvn_export->async_stall_delay);
+	//uint32_t async_stall_delay =
+	//		atomic_fetch_uint32_t(&fvn_export->async_stall_delay);
 
 	if (read_arg->info != NULL) {
 		/* Currently we don't support READ_PLUS */
@@ -1839,13 +1839,12 @@ void fvn_read2(struct fsal_obj_handle *obj_hdl,
 	done_cb(obj_hdl, fsalstat(ERR_FSAL_NO_ERROR, 0), read_arg, caller_arg);
 
 out:
-
-	if (async_stall_delay > 0) {
-		/* We have been asked to stall the calling thread, whether we
-		 * issued an inline or async callback.
-		 */
-		usleep(async_stall_delay);
-	}
+	//if (async_stall_delay > 0) {
+	//	/* We have been asked to stall the calling thread, whether we
+	//	 * issued an inline or async callback.
+	//	 */
+	//	usleep(async_stall_delay);
+	//}
 }
 
 /**
